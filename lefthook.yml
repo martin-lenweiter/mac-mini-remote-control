@@ -1,0 +1,6 @@
+pre-commit:
+  commands:
+    check:
+      glob: '*.{js,ts,jsx,tsx,json,css}'
+      run: bunx @biomejs/biome check --staged --write
+      stage_fixed: true
