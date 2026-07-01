@@ -1,7 +1,7 @@
 'use client';
 
 import { Folder, Loader2, Plus } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -44,9 +44,23 @@ export function NewSessionDialog({ onLaunch }: NewSessionDialogProps) {
   const [task, setTask] = useState('');
   const [launching, setLaunching] = useState(false);
 
+  // Warm the namer lazily: only when the user is actually about to auto-name
+  // (task field focused while the name is blank), and at most once per open.
+  // Warming eagerly on open — let alone on every folder click — pins the
+  // ~900MB gemma model in RAM even when the user types an explicit name and
+  // never touches the auto-namer.
+  const warmed = useRef(false);
+  useEffect(() => {
+    if (!open) warmed.current = false;
+  }, [open]);
+  function maybeWarmNamer() {
+    if (warmed.current || name.trim()) return;
+    warmed.current = true;
+    warmupNamer();
+  }
+
   useEffect(() => {
     if (!open) return;
-    warmupNamer();
     setLoadingDirs(true);
     let active = true;
     fetchDirs(path)
@@ -183,6 +197,7 @@ export function NewSessionDialog({ onLaunch }: NewSessionDialogProps) {
             <Input
               value={task}
               onChange={(e) => setTask(e.target.value)}
+              onFocus={maybeWarmNamer}
               placeholder="e.g. fix the login redirect bug"
               disabled={name.trim().length > 0}
               onKeyDown={(e) => {
