@@ -66,6 +66,19 @@ describe('stripTypePrefix', () => {
     expect(stripTypePrefix('text-size')).toBe('text-size');
     expect(stripTypePrefix('hermes')).toBe('hermes');
   });
+
+  // newSession passes stripTypePrefix(sessionName) to the launcher, which
+  // re-adds the type prefix. This round-trip must reproduce sessionName exactly,
+  // or sessions get a doubled prefix (cc-cc-…) that desyncs attach/kill.
+  it('round-trips with the launcher prefix for every type', () => {
+    for (const [type, name] of [
+      ['cc', 'cc-fix-bug'],
+      ['cx', 'cx-fix-bug-2'],
+      ['sh', 'sh-cc-named-like-a-type'],
+    ] as const) {
+      expect(`${type}-${stripTypePrefix(name)}`).toBe(name);
+    }
+  });
 });
 
 describe('assertRelPath', () => {

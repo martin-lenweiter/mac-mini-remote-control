@@ -1,4 +1,7 @@
 import { execFile } from 'node:child_process';
+import { copyFile, readFile, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { RIG } from '@/lib/config';
 import { generateSessionSlug, slugify } from '@/lib/naming';
@@ -242,14 +245,54 @@ async function listSessionNames(): Promise<Set<string>> {
 }
 
 // --- actions --------------------------------------------------------------
+// The local cmux daemon validates our `--password` against automation.socketPassword
+// in this file. cmux can rewrite the file and drop the field, leaving password mode
+// enabled with nothing to match — then every workspace create fails with "Password
+// mode is enabled but no socket password is configured". Keep the two in sync.
+const CMUX_CONFIG_PATH = join(homedir(), '.config', 'cmux', 'cmux.json');
+
+// Best-effort: heal the cmux config so it can't silently drift out from under us.
+// Only rewrites + reloads when the stored value actually differs, and never throws —
+// if healing fails, the workspace create below surfaces the real error.
+async function ensureCmuxSocketAuth(): Promise<void> {
+  if (!RIG.cmuxSocketPassword) return;
+  try {
+    const raw = await readFile(CMUX_CONFIG_PATH, 'utf8');
+    const cfg = JSON.parse(raw);
+    cfg.automation ??= {};
+    const automation = cfg.automation;
+    if (
+      automation.socketControlMode === 'password' &&
+      automation.socketPassword === RIG.cmuxSocketPassword
+    ) {
+      return; // already in sync
+    }
+    automation.socketControlMode = 'password';
+    automation.socketPassword = RIG.cmuxSocketPassword;
+    await copyFile(CMUX_CONFIG_PATH, `${CMUX_CONFIG_PATH}.mc.bak`);
+    await writeFile(CMUX_CONFIG_PATH, `${JSON.stringify(cfg, null, 2)}\n`);
+    // Control commands read socketPassword from disk live, so the write above is
+    // the actual cure; this reload just refreshes the daemon's in-memory settings.
+    // reload-config is auth-exempt when disk holds a valid password, so no creds.
+    await pexec(RIG.cmuxBin, ['reload-config'], { timeout: 5000 });
+  } catch {
+    // best-effort; let the workspace create surface any real failure
+  }
+}
+
 // Open an interactive command in a new cmux workspace titled `title`. cmux runs
 // `command` in the workspace's terminal, so the remote ssh/tmux session is fully
 // interactive. `command` and `title` are passed as argv (no shell on our side).
 async function openInCmux(command: string, title: string): Promise<void> {
-  await pexec(RIG.cmuxBin, ['workspace', 'create', '--name', title, '--command', command], {
-    timeout: 8000,
-    env: { ...process.env, CMUX_QUIET: '1' },
-  });
+  await ensureCmuxSocketAuth();
+  // `--password` is a global flag and must precede the subcommand. cmux rejects
+  // out-of-tree clients (the launchd service) unless they present this secret.
+  const auth = RIG.cmuxSocketPassword ? ['--password', RIG.cmuxSocketPassword] : [];
+  await pexec(
+    RIG.cmuxBin,
+    [...auth, 'workspace', 'create', '--name', title, '--command', command],
+    { timeout: 8000, env: { ...process.env, CMUX_QUIET: '1' } },
+  );
 }
 
 export async function attachSession(name: string): Promise<void> {
@@ -293,7 +336,12 @@ export async function newSession(
   assertName(sessionName, 'session name');
 
   // Use the rig launchers (single source of truth) with the -C working-dir flag.
-  const remote = `ssh -t ${RIG.sshAlias} "zsh -lic '${LAUNCHER[type]} -C ${target} ${sessionName}'"`;
+  // The launchers prepend the type themselves (`cct` makes `cc-$n`), so pass the
+  // name without our `${type}-` prefix — otherwise the session is doubled
+  // (`cc-cc-…`). stripTypePrefix(sessionName) is exactly that suffix, so the
+  // launcher reconstructs `sessionName`.
+  const launcherName = stripTypePrefix(sessionName);
+  const remote = `ssh -t ${RIG.sshAlias} "zsh -lic '${LAUNCHER[type]} -C ${target} ${launcherName}'"`;
   await openInCmux(remote, sessionName);
   return sessionName;
 }

@@ -40,7 +40,13 @@ on the laptop:
 - The **`coding-setup` rig** configured: an SSH alias `mini` in `~/.ssh/config`,
   the `cct`/`cxt`/`tmt` launchers on the mini (with the `-C` flag), and key-based
   SSH over Tailscale.
-- **cmux** installed on the laptop (sessions open as cmux workspaces).
+- **cmux** installed on the laptop (sessions open as cmux workspaces). Because
+  the panel runs as a launchd service — *outside* cmux's process tree — cmux's
+  default `cmuxOnly` socket policy rejects it. In `~/.config/cmux/cmux.json` set
+  `automation.socketControlMode` to `"password"` with an `automation.socketPassword`,
+  give Mission Control that same value via `RIG_CMUX_SOCKET_PASSWORD`, and
+  **restart cmux once** (the socket auth gate binds at launch; `reload-config`
+  does not rebind it).
 - **ollama** with a small model (`gemma4:e4b` by default) for session auto-naming
   — optional; naming falls back to the directory name if it's unavailable.
 - **bun**.
@@ -83,6 +89,7 @@ host — the app only needs the SSH alias):
 | `RIG_CDP_PORT` | `9335` | mini headed-Chrome remote-debugging port |
 | `RIG_CHROME_LABEL` | `io.grace.chrome-local` | launchd label for the mini's Chrome |
 | `RIG_CMUX_BIN` | `/Applications/cmux.app/Contents/Resources/bin/cmux` | cmux CLI |
+| `RIG_CMUX_SOCKET_PASSWORD` | _(unset)_ | cmux socket password; must match `automation.socketPassword` so the launchd service can drive cmux (see Requirements). Keep in `.env.local`. |
 | `RIG_OLLAMA_URL` | `http://localhost:11434` | local ollama endpoint |
 | `RIG_NAMER_MODEL` | `gemma4:e4b` | naming model |
 | `RIG_NAMER_TIMEOUT_MS` | `12000` | naming timeout before falling back |

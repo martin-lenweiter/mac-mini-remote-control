@@ -26,6 +26,9 @@ full picture; this is what matters when changing the code.
 - Sessions are launched through the rig's `cct`/`cxt`/`tmt` launchers (with `-C`),
   not by reimplementing them here — one source of truth. The `-C` flag lives in
   the `coding-setup` repo; update it there (and the mini's `~/.zshrc`) if it changes.
+  The launchers **prepend the type themselves** (`cct` makes `cc-$n`), so pass them
+  the name *without* our `${type}-` prefix (`stripTypePrefix(sessionName)`) or
+  sessions come out doubled (`cc-cc-…`) and desync attach/kill.
 - No secrets in the repo — only the SSH alias; never hardcode the Tailnet host.
 
 ## Verify before done
@@ -38,3 +41,11 @@ The panel runs as a launchd service (`scripts/install-service.sh`,
 `io.grace.mission-control`) serving the **production build** at `localhost:4321`.
 After changing app code, re-run that script to rebuild + reload; `bun run dev`
 clashes with it on 4321 (stop the service first).
+
+Because the service runs outside cmux's process tree, cmux's default `cmuxOnly`
+socket policy rejects it (`Failed to write to socket (Broken pipe)`). Fix: set
+`automation.socketControlMode: "password"` + a `socketPassword` in
+`~/.config/cmux/cmux.json`, hand the panel the same value via
+`RIG_CMUX_SOCKET_PASSWORD` (in `.env.local`; `openInCmux` passes it as cmux's
+global `--password`), and **restart cmux once** — the socket auth gate binds at
+launch, so `cmux reload-config` is not enough.

@@ -15,6 +15,13 @@ export const RIG = {
   vncRemotePort: 5900,
   /** cmux CLI used to open interactive sessions in a new cmux workspace. */
   cmuxBin: process.env.RIG_CMUX_BIN ?? '/Applications/cmux.app/Contents/Resources/bin/cmux',
+  /**
+   * Socket password for cmux's `password` control mode. Required when running
+   * outside the cmux process tree (the always-on launchd service), since cmux's
+   * default `cmuxOnly` mode rejects external clients. Must match
+   * automation.socketPassword in ~/.config/cmux/cmux.json. '' when unset.
+   */
+  cmuxSocketPassword: process.env.RIG_CMUX_SOCKET_PASSWORD ?? '',
   /** SSH connect timeout (seconds) for read probes. */
   connectTimeout: 6,
 } as const;
