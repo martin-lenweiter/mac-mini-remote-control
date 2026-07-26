@@ -47,7 +47,6 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { fetchStatus, runAction } from '@/lib/client';
 import { formatBytes, formatIdle, formatUptime, TYPE_LABEL } from '@/lib/format';
-import { RIG_LABEL } from '@/lib/labels';
 import type { AgentType, DevServer, MiniHealth, RigStatus, SessionInfo } from '@/lib/types';
 
 const TYPE_VARIANT: Record<string, 'default' | 'secondary' | 'outline'> = {
@@ -100,12 +99,7 @@ export function Dashboard() {
   return (
     <main className="mx-auto w-full max-w-6xl px-6 py-8">
       <header className="mb-8 flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Mac Mini Remote Control</h1>
-          <p className="text-sm text-muted-foreground">
-            Remote coding rig · <span className="font-mono">{RIG_LABEL}</span>
-          </p>
-        </div>
+        <h1 className="text-2xl font-semibold tracking-tight">Mac Mini Remote Control</h1>
         <div className="flex items-center gap-3">
           <StatusPill ok={reachable} loading={!status} />
           <Button variant="outline" size="sm" onClick={refresh} disabled={refreshing}>
