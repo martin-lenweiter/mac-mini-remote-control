@@ -8,8 +8,6 @@ export const RIG = {
   codeRoot: process.env.RIG_CODE_ROOT ?? '~/code',
   /** Headed-Chrome remote-debugging port on the mini (LOCAL_CDP_PORT). */
   cdpPort: Number(process.env.RIG_CDP_PORT ?? 9335),
-  /** launchd label for the mini's headed Chrome. */
-  chromeLabel: process.env.RIG_CHROME_LABEL ?? 'io.grace.chrome-local',
   /** VNC screen-share tunnel ports (local:remote). */
   vncLocalPort: 5901,
   vncRemotePort: 5900,

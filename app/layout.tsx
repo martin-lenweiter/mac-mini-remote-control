@@ -4,7 +4,7 @@ import { Toaster } from '@/components/ui/sonner';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Mission Control',
+  title: 'Mac Mini Remote Control',
   description: 'Control panel for the remote coding rig',
 };
 

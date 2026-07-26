@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install Mission Control as an always-on LaunchAgent so it serves at a stable
+# Install Mac Mini Remote Control as an always-on LaunchAgent so it serves at a stable
 # http://localhost:4321 — starts at login, restarts on crash. Idempotent.
 set -euo pipefail
 
@@ -47,9 +47,19 @@ EOF
 
 # Reload cleanly.
 launchctl bootout "gui/$UID_NUM/$LABEL" 2>/dev/null || true
-launchctl bootstrap "gui/$UID_NUM" "$PLIST"
+for attempt in 1 2 3 4 5; do
+  if bootstrap_error="$(launchctl bootstrap "gui/$UID_NUM" "$PLIST" 2>&1)"; then
+    break
+  fi
+  if [ "$attempt" -eq 5 ]; then
+    echo "$bootstrap_error" >&2
+    echo "error: launchd did not accept $LABEL after $attempt attempts" >&2
+    exit 1
+  fi
+  sleep 0.25
+done
 launchctl enable "gui/$UID_NUM/$LABEL"
 
-echo "Installed $LABEL — Mission Control is always on at http://localhost:4321"
+echo "Installed $LABEL — Mac Mini Remote Control is always on at http://localhost:4321"
 echo "Logs: $LOG"
 echo "Stop:  launchctl bootout gui/$UID_NUM/$LABEL"

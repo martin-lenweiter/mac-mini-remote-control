@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { copyFile, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -7,8 +7,10 @@ import { RIG } from '@/lib/config';
 import { generateSessionSlug, slugify } from '@/lib/naming';
 import type {
   AgentType,
-  ChromeHealth,
   DevServer,
+  MemoryPressure,
+  MiniHealth,
+  OSUpdateStatus,
   RigStatus,
   SessionInfo,
   TunnelInfo,
@@ -37,11 +39,28 @@ function assertPort(port: number): void {
 // Paths/labels are interpolated unquoted into remote shell commands. Allow only
 // characters that cannot break out of the command (no quotes, spaces, $, ;, etc.).
 const SAFE_PATH_RE = /^[~A-Za-z0-9._/-]+$/;
-const SAFE_LABEL_RE = /^[A-Za-z0-9._-]+$/;
-
 function assertSafe(value: string, re: RegExp, label: string): string {
   if (!re.test(value)) throw new Error(`Unsafe ${label}: ${JSON.stringify(value)}`);
   return value;
+}
+
+const PANE_TTY_RE = /^\/dev\/ttys[0-9a-f]+$/i;
+
+export function parsePaneTargets(stdout: string): Array<{ pid: number; tty: string }> {
+  const targets = stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [pidText, tty] = line.split('|');
+      const pid = Number(pidText);
+      if (!Number.isInteger(pid) || pid < 1 || !tty || !PANE_TTY_RE.test(tty)) {
+        throw new Error(`Invalid tmux pane target: ${JSON.stringify(line)}`);
+      }
+      return { pid, tty };
+    });
+  if (targets.length === 0) throw new Error('Session has no live panes');
+  return targets;
 }
 
 // --- ssh read probes ------------------------------------------------------
@@ -129,14 +148,64 @@ export function parseDevServers(stdout: string, forwardedPorts: Set<number>): De
   return [...seen.values()].sort((a, b) => a.port - b.port);
 }
 
-export function parseChrome(stdout: string): ChromeHealth {
-  if (stdout.includes('NOT_LOADED')) return { loaded: false, running: false, pid: null };
-  const state = stdout.match(/state\s*=\s*(\w+)/)?.[1] ?? null;
-  const pidMatch = stdout.match(/pid\s*=\s*(\d+)/)?.[1];
+function parseByteSize(value: string): number {
+  const match = value.match(/^([\d.]+)([BKMGT])$/i);
+  if (!match) return Number.NaN;
+  const power = 'BKMGT'.indexOf(match[2].toUpperCase());
+  return Number(match[1]) * 1024 ** power;
+}
+
+function parseMemoryPressure(value: number): MemoryPressure {
+  if (value === 1) return 'normal';
+  if (value === 2) return 'warning';
+  if (value === 4) return 'critical';
+  throw new Error(`Unknown mini memory pressure level: ${value}`);
+}
+
+export function parseMiniHealth(stdout: string): Omit<MiniHealth, 'osUpdate'> {
+  const idle = Number(stdout.match(/CPU usage:.*?([\d.]+)% idle/)?.[1]);
+  const memory = stdout.match(/PhysMem:\s*([\d.]+[BKMGT]) used.*?([\d.]+[BKMGT]) unused/i);
+  const memoryTotal = Number(stdout.match(/^MEMTOTAL\s+(\d+)$/m)?.[1]);
+  const memoryPressure = Number(stdout.match(/^MEMORYPRESSURE\s+(\d+)$/m)?.[1]);
+  const diskUsed = Number(stdout.match(/^DISK\s+\d+\s+\d+\s+\d+\s+(\d+)$/m)?.[1]);
+  const bootTime = Number(stdout.match(/^BOOT\s+(\d+)$/m)?.[1]);
+  const now = Number(stdout.match(/^NOW\s+(\d+)$/m)?.[1]);
+  const osVersion = stdout.match(/^OS\s+(\S+)$/m)?.[1] ?? '';
+
+  if (
+    !Number.isFinite(idle) ||
+    !memory ||
+    !Number.isFinite(memoryTotal) ||
+    !Number.isFinite(memoryPressure) ||
+    !Number.isFinite(diskUsed) ||
+    !Number.isFinite(bootTime) ||
+    !Number.isFinite(now) ||
+    !osVersion
+  ) {
+    throw new Error('Could not parse mini health probe');
+  }
+
+  const unusedBytes = parseByteSize(memory[2]);
+  if (!Number.isFinite(unusedBytes)) throw new Error('Could not parse mini memory usage');
+
   return {
-    loaded: true,
-    running: state === 'running',
-    pid: pidMatch ? Number(pidMatch) : null,
+    cpuUsedPercent: Math.max(0, Math.min(100, 100 - idle)),
+    memoryUsedBytes: Math.max(0, memoryTotal - unusedBytes),
+    memoryTotalBytes: memoryTotal,
+    memoryPressure: parseMemoryPressure(memoryPressure),
+    diskUsedPercent: diskUsed,
+    uptimeSeconds: Math.max(0, now - bootTime),
+    osVersion,
+  };
+}
+
+export function parseOSUpdate(stdout: string, checkedAt: number): OSUpdateStatus {
+  const match = stdout.match(/Title:\s*macOS [^,\n]+,\s*Version:\s*([^,\n]+)/i);
+  return {
+    available: match !== null,
+    version: match?.[1]?.trim() ?? null,
+    checkedAt,
+    error: null,
   };
 }
 
@@ -170,6 +239,37 @@ export async function listTunnels(): Promise<TunnelInfo[]> {
 
 // --- aggregate status -----------------------------------------------------
 const SESSIONS_FMT = `${PATH_PREFIX} tmux list-sessions -F '#{session_name}|#{session_attached}|#{session_activity}|#{session_created}' 2>/dev/null || true`;
+const HEALTH_CMD = [
+  `top -l 1 -n 0 | grep -E '^(CPU usage|PhysMem):'`,
+  `sysctl -n hw.memsize | awk '{print "MEMTOTAL "$1}'`,
+  `sysctl -n kern.memorystatus_vm_pressure_level | awk '{print "MEMORYPRESSURE "$1}'`,
+  `df -k / | awk 'NR==2 {gsub(/%/, "", $5); print "DISK "$2" "$3" "$4" "$5}'`,
+  `sysctl -n kern.boottime | awk -F'[=,]' '{gsub(/ /, "", $2); print "BOOT "$2}'`,
+  `date +%s | awk '{print "NOW "$1}'`,
+  `sw_vers -productVersion | awk '{print "OS "$1}'`,
+].join('; ');
+const UPDATE_CACHE_MS = 30 * 60 * 1000;
+
+let updateCache: { value: OSUpdateStatus; expiresAt: number } | null = null;
+
+async function getOSUpdate(): Promise<OSUpdateStatus> {
+  const now = Date.now();
+  if (updateCache && updateCache.expiresAt > now) return updateCache.value;
+
+  let value: OSUpdateStatus;
+  try {
+    value = parseOSUpdate(await sshRead('softwareupdate --list 2>&1', 30_000), now);
+  } catch (error) {
+    value = {
+      available: false,
+      version: null,
+      checkedAt: now,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+  updateCache = { value, expiresAt: now + UPDATE_CACHE_MS };
+  return value;
+}
 
 export async function listSessions(): Promise<SessionInfo[]> {
   return parseSessions(await sshRead(SESSIONS_FMT), Math.floor(Date.now() / 1000));
@@ -181,21 +281,20 @@ export async function getStatus(): Promise<RigStatus> {
     tunnels.filter((t) => t.kind === 'dev-port').map((t) => t.remotePort),
   );
 
-  const [sessions, devServers, chrome] = await Promise.all([
+  const [sessions, devServers, healthBase, osUpdate] = await Promise.all([
     listSessions(),
     sshRead(`lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR>1{print $1" "$9}' | sort -u`).then(
       (o) => parseDevServers(o, forwardedPorts),
     ),
-    sshRead(
-      `launchctl print gui/$(id -u)/${assertSafe(RIG.chromeLabel, SAFE_LABEL_RE, 'chrome label')} 2>/dev/null | grep -E 'state = |pid = ' || echo NOT_LOADED`,
-    ).then(parseChrome),
+    sshRead(HEALTH_CMD).then(parseMiniHealth),
+    getOSUpdate(),
   ]);
 
   return {
     sessions,
     tunnels,
     devServers,
-    chrome,
+    health: { ...healthBase, osUpdate },
     reachable: true,
     error: null,
     fetchedAt: Date.now(),
@@ -245,36 +344,20 @@ async function listSessionNames(): Promise<Set<string>> {
 }
 
 // --- actions --------------------------------------------------------------
-// The local cmux daemon validates our `--password` against automation.socketPassword
-// in this file. cmux can rewrite the file and drop the field, leaving password mode
-// enabled with nothing to match — then every workspace create fails with "Password
-// mode is enabled but no socket password is configured". Keep the two in sync.
-const CMUX_CONFIG_PATH = join(homedir(), '.config', 'cmux', 'cmux.json');
+// cmux stores the socket password separately from cmux.json so the secret is not
+// exposed in ordinary config. The daemon watches this file for auth changes.
+const CMUX_PASSWORD_PATH = join(homedir(), '.local', 'state', 'cmux', 'socket-control-password');
 
-// Best-effort: heal the cmux config so it can't silently drift out from under us.
-// Only rewrites + reloads when the stored value actually differs, and never throws —
-// if healing fails, the workspace create below surfaces the real error.
+// Best-effort: heal cmux's secret store if it drifts from the launchd environment.
+// Never throw here; workspace creation below will surface the actionable error.
 async function ensureCmuxSocketAuth(): Promise<void> {
   if (!RIG.cmuxSocketPassword) return;
   try {
-    const raw = await readFile(CMUX_CONFIG_PATH, 'utf8');
-    const cfg = JSON.parse(raw);
-    cfg.automation ??= {};
-    const automation = cfg.automation;
-    if (
-      automation.socketControlMode === 'password' &&
-      automation.socketPassword === RIG.cmuxSocketPassword
-    ) {
-      return; // already in sync
-    }
-    automation.socketControlMode = 'password';
-    automation.socketPassword = RIG.cmuxSocketPassword;
-    await copyFile(CMUX_CONFIG_PATH, `${CMUX_CONFIG_PATH}.mc.bak`);
-    await writeFile(CMUX_CONFIG_PATH, `${JSON.stringify(cfg, null, 2)}\n`);
-    // Control commands read socketPassword from disk live, so the write above is
-    // the actual cure; this reload just refreshes the daemon's in-memory settings.
-    // reload-config is auth-exempt when disk holds a valid password, so no creds.
-    await pexec(RIG.cmuxBin, ['reload-config'], { timeout: 5000 });
+    const stored = await readFile(CMUX_PASSWORD_PATH, 'utf8').catch(() => '');
+    if (stored.trim() === RIG.cmuxSocketPassword) return;
+    await mkdir(join(homedir(), '.local', 'state', 'cmux'), { recursive: true });
+    await writeFile(CMUX_PASSWORD_PATH, `${RIG.cmuxSocketPassword}\n`, { mode: 0o600 });
+    await chmod(CMUX_PASSWORD_PATH, 0o600);
   } catch {
     // best-effort; let the workspace create surface any real failure
   }
@@ -351,7 +434,20 @@ export async function killSession(name: string): Promise<void> {
   if (!(await listSessionNames()).has(name)) {
     throw new Error(`No such session: ${name}`);
   }
-  await sshRead(`${PATH_PREFIX} tmux kill-session -t ${name} 2>&1 || true`);
+  const targets = parsePaneTargets(
+    await sshRead(`${PATH_PREFIX} tmux list-panes -s -t ${name} -F '#{pane_pid}|#{pane_tty}'`),
+  );
+  const checks = targets.map(({ pid, tty }) => {
+    const ttyName = tty.slice('/dev/'.length);
+    return `test "$(ps -p ${pid} -o tty= | tr -d ' ')" = ${ttyName}`;
+  });
+  const kills = targets.map(({ tty }) => {
+    const ttyName = tty.slice('/dev/'.length);
+    return `pkill -KILL -t ${ttyName} '.*' 2>/dev/null || true`;
+  });
+  await sshRead(
+    `${PATH_PREFIX} ${checks.join(' && ')} || { echo 'Pane identity changed; refusing to kill' >&2; exit 1; }; ${kills.join('; ')}; tmux kill-session -t ${name} 2>/dev/null || true`,
+  );
 }
 
 export async function renameSession(from: string, to: string): Promise<void> {
@@ -373,6 +469,11 @@ export async function startScreenshare(): Promise<void> {
     );
   }
   await pexec('open', [`vnc://localhost:${RIG.vncLocalPort}`], { timeout: 5000 });
+}
+
+export async function openSoftwareUpdate(): Promise<void> {
+  await sshRead(`open 'x-apple.systempreferences:com.apple.Software-Update-Settings.extension'`);
+  await startScreenshare();
 }
 
 export async function forwardPort(port: number): Promise<void> {

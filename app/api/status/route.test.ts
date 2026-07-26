@@ -9,7 +9,7 @@ const ONLINE: RigStatus = {
   sessions: [],
   tunnels: [],
   devServers: [],
-  chrome: { loaded: true, running: true, pid: 1 },
+  health: null,
   reachable: true,
   error: null,
   fetchedAt: 1,
@@ -20,7 +20,7 @@ describe('GET /api/status', () => {
     vi.mocked(getStatus).mockResolvedValueOnce(ONLINE);
     const body = (await (await GET()).json()) as RigStatus;
     expect(body.reachable).toBe(true);
-    expect(body.chrome.running).toBe(true);
+    expect(body.health).toBeNull();
   });
 
   it('returns an offline fallback when the probe throws', async () => {

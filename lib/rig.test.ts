@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertRelPath,
-  parseChrome,
   parseDevServers,
   parseDirListing,
+  parseMiniHealth,
+  parseOSUpdate,
+  parsePaneTargets,
   parseSessions,
   stripTypePrefix,
 } from '@/lib/rig';
@@ -96,6 +98,21 @@ describe('assertRelPath', () => {
   });
 });
 
+describe('parsePaneTargets', () => {
+  it('accepts numeric pane pids with macOS pseudo terminals', () => {
+    expect(parsePaneTargets('24409|/dev/ttys005\n301|/dev/ttys00a\n')).toEqual([
+      { pid: 24409, tty: '/dev/ttys005' },
+      { pid: 301, tty: '/dev/ttys00a' },
+    ]);
+  });
+
+  it('fails closed for missing or unsafe pane targets', () => {
+    expect(() => parsePaneTargets('')).toThrow('no live panes');
+    expect(() => parsePaneTargets('24409|/dev/ttys005;reboot')).toThrow('Invalid');
+    expect(() => parsePaneTargets('not-a-pid|/dev/ttys005')).toThrow('Invalid');
+  });
+});
+
 describe('parseDevServers', () => {
   it('extracts ports, dedupes, drops system procs and the CDP port', () => {
     const out = [
@@ -113,17 +130,89 @@ describe('parseDevServers', () => {
   });
 });
 
-describe('parseChrome', () => {
-  it('reads running state and pid', () => {
-    expect(parseChrome('\tstate = running\n\tpid = 66720\n')).toEqual({
-      loaded: true,
-      running: true,
-      pid: 66720,
+describe('parseMiniHealth', () => {
+  it('parses CPU, memory, disk, uptime, and OS version', () => {
+    const out = [
+      'CPU usage: 11.78% user, 15.15% sys, 73.6% idle',
+      'PhysMem: 14G used (2828M wired), 1318M unused.',
+      'MEMTOTAL 17179869184',
+      'MEMORYPRESSURE 1',
+      'DISK 239362496 16329100 19313704 46',
+      'BOOT 1000',
+      'NOW 3700',
+      'OS 26.4.1',
+    ].join('\n');
+
+    expect(parseMiniHealth(out)).toEqual({
+      cpuUsedPercent: 26.400000000000006,
+      memoryUsedBytes: 15797846016,
+      memoryTotalBytes: 17179869184,
+      memoryPressure: 'normal',
+      diskUsedPercent: 46,
+      uptimeSeconds: 2700,
+      osVersion: '26.4.1',
     });
   });
 
-  it('handles stopped and not-loaded', () => {
-    expect(parseChrome('\tstate = waiting\n')).toMatchObject({ loaded: true, running: false });
-    expect(parseChrome('NOT_LOADED')).toEqual({ loaded: false, running: false, pid: null });
+  it('rejects incomplete probe output', () => {
+    expect(() => parseMiniHealth('CPU usage: 100% idle')).toThrow();
+  });
+
+  it.each([
+    [1, 'normal'],
+    [2, 'warning'],
+    [4, 'critical'],
+  ] as const)('maps kernel memory pressure level %i to %s', (level, expected) => {
+    const out = [
+      'CPU usage: 100% idle',
+      'PhysMem: 14G used, 2G unused.',
+      'MEMTOTAL 17179869184',
+      `MEMORYPRESSURE ${level}`,
+      'DISK 1 1 1 1',
+      'BOOT 1000',
+      'NOW 1001',
+      'OS 26.4.1',
+    ].join('\n');
+
+    expect(parseMiniHealth(out).memoryPressure).toBe(expected);
+  });
+
+  it('rejects an unknown kernel memory pressure level', () => {
+    const out = [
+      'CPU usage: 100% idle',
+      'PhysMem: 14G used, 2G unused.',
+      'MEMTOTAL 17179869184',
+      'MEMORYPRESSURE 3',
+      'DISK 1 1 1 1',
+      'BOOT 1000',
+      'NOW 1001',
+      'OS 26.4.1',
+    ].join('\n');
+
+    expect(() => parseMiniHealth(out)).toThrow('Unknown mini memory pressure level: 3');
+  });
+});
+
+describe('parseOSUpdate', () => {
+  it('finds a macOS update while ignoring other software', () => {
+    const out = [
+      '* Label: Command Line Tools for Xcode 26.6-26.6',
+      '  Title: Command Line Tools for Xcode 26.6, Version: 26.6, Size: 920431KiB',
+      '* Label: macOS Tahoe 26.5.2-25F84',
+      '  Title: macOS Tahoe 26.5.2, Version: 26.5.2, Size: 3709215KiB',
+    ].join('\n');
+    expect(parseOSUpdate(out, 123)).toEqual({
+      available: true,
+      version: '26.5.2',
+      checkedAt: 123,
+      error: null,
+    });
+  });
+
+  it('reports no OS update when only other updates are available', () => {
+    expect(parseOSUpdate('Title: Command Line Tools, Version: 26.6', 123)).toMatchObject({
+      available: false,
+      version: null,
+    });
   });
 });

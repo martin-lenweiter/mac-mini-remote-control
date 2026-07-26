@@ -1,4 +1,4 @@
-# Mission Control
+# Mac Mini Remote Control
 
 A local control panel for the remote coding rig — a single dashboard for the
 sessions, tunnels, dev servers, and agent browser running on the always-on Mac
@@ -10,16 +10,17 @@ shelling out to the same `ssh` / `tmux` / `cmux` commands you'd type by hand.
 
 ## What it does
 
-- **Live status** (polls every 4s, plus a manual refresh): tmux sessions on the
-  mini, active SSH tunnels, dev servers listening on the mini, and the mini's
-  headed-Chrome / agent-browser health.
+- **Live status** (polls every 4s, plus a manual refresh): tmux sessions, CPU,
+  memory, disk, uptime, macOS version, screen sharing, and dev servers on the
+  mini. The slower macOS update check is cached for 30 minutes.
 - **Sessions** — open any session in a **new cmux workspace** (attach), start a
-  **repo-aware new session**, **rename**, or **kill** (with confirmation).
+  **repo-aware new session**, **rename**, or **kill** it and every process still
+  attached to its panes (with confirmation).
 - **New session** — browse a **directory tree under `~/code`** and launch there.
   The name comes from an explicit name you type, or, if blank, from **local
   gemma** (ollama) using an optional task description, falling back to the
   directory name. The `cc-`/`cx-`/`sh-` prefix encodes the agent type.
-- **Screen share** — one-click VNC tunnel into the mini.
+- **Screen share** — see the VNC tunnel state and open it with one click.
 - **Dev servers** — forward a mini port to your laptop and open it, or tear the
   forward down.
 
@@ -44,7 +45,7 @@ on the laptop:
   the panel runs as a launchd service — *outside* cmux's process tree — cmux's
   default `cmuxOnly` socket policy rejects it. In `~/.config/cmux/cmux.json` set
   `automation.socketControlMode` to `"password"` with an `automation.socketPassword`,
-  give Mission Control that same value via `RIG_CMUX_SOCKET_PASSWORD`, and
+  give Mac Mini Remote Control that same value via `RIG_CMUX_SOCKET_PASSWORD`, and
   **restart cmux once** (the socket auth gate binds at launch; `reload-config`
   does not rebind it).
 - **ollama** with a small model (`gemma4:e4b` by default) for session auto-naming
@@ -87,7 +88,6 @@ host — the app only needs the SSH alias):
 | `RIG_SSH_ALIAS` | `mini` | SSH alias for the mini |
 | `RIG_CODE_ROOT` | `~/code` | repo root on the mini (dir navigator + `-C` launches) |
 | `RIG_CDP_PORT` | `9335` | mini headed-Chrome remote-debugging port |
-| `RIG_CHROME_LABEL` | `io.grace.chrome-local` | launchd label for the mini's Chrome |
 | `RIG_CMUX_BIN` | `/Applications/cmux.app/Contents/Resources/bin/cmux` | cmux CLI |
 | `RIG_CMUX_SOCKET_PASSWORD` | _(unset)_ | cmux socket password; must match `automation.socketPassword` so the launchd service can drive cmux (see Requirements). Keep in `.env.local`. |
 | `RIG_OLLAMA_URL` | `http://localhost:11434` | local ollama endpoint |
@@ -103,7 +103,7 @@ app/
   page.tsx        # renders <Dashboard/>
   layout.tsx      # system font, dark theme, toaster
 components/
-  Dashboard.tsx       # polling + the four panels + per-row actions
+  Dashboard.tsx       # polling + status panels + per-row actions
   NewSessionDialog.tsx
   ActionButton.tsx, providers.tsx, ui/  # shadcn
 lib/

@@ -6,7 +6,7 @@ function offlineStatus(message: string): RigStatus {
     sessions: [],
     tunnels: [],
     devServers: [],
-    chrome: { loaded: false, running: false, pid: null },
+    health: null,
     reachable: false,
     error: message,
     fetchedAt: Date.now(),
