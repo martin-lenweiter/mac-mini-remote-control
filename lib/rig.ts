@@ -167,7 +167,9 @@ export function parseMiniHealth(stdout: string): Omit<MiniHealth, 'osUpdate'> {
   const memory = stdout.match(/PhysMem:\s*([\d.]+[BKMGT]) used.*?([\d.]+[BKMGT]) unused/i);
   const memoryTotal = Number(stdout.match(/^MEMTOTAL\s+(\d+)$/m)?.[1]);
   const memoryPressure = Number(stdout.match(/^MEMORYPRESSURE\s+(\d+)$/m)?.[1]);
-  const diskUsed = Number(stdout.match(/^DISK\s+\d+\s+\d+\s+\d+\s+(\d+)$/m)?.[1]);
+  const disk = stdout.match(/^DISK\s+(\d+)\s+(\d+)$/m);
+  const diskTotal = Number(disk?.[1]);
+  const diskFree = Number(disk?.[2]);
   const bootTime = Number(stdout.match(/^BOOT\s+(\d+)$/m)?.[1]);
   const now = Number(stdout.match(/^NOW\s+(\d+)$/m)?.[1]);
   const osVersion = stdout.match(/^OS\s+(\S+)$/m)?.[1] ?? '';
@@ -177,7 +179,11 @@ export function parseMiniHealth(stdout: string): Omit<MiniHealth, 'osUpdate'> {
     !memory ||
     !Number.isFinite(memoryTotal) ||
     !Number.isFinite(memoryPressure) ||
-    !Number.isFinite(diskUsed) ||
+    !Number.isFinite(diskTotal) ||
+    diskTotal <= 0 ||
+    !Number.isFinite(diskFree) ||
+    diskFree < 0 ||
+    diskFree > diskTotal ||
     !Number.isFinite(bootTime) ||
     !Number.isFinite(now) ||
     !osVersion
@@ -193,7 +199,7 @@ export function parseMiniHealth(stdout: string): Omit<MiniHealth, 'osUpdate'> {
     memoryUsedBytes: Math.max(0, memoryTotal - unusedBytes),
     memoryTotalBytes: memoryTotal,
     memoryPressure: parseMemoryPressure(memoryPressure),
-    diskUsedPercent: diskUsed,
+    diskUsedPercent: Math.round(((diskTotal - diskFree) / diskTotal) * 100),
     uptimeSeconds: Math.max(0, now - bootTime),
     osVersion,
   };
@@ -243,7 +249,7 @@ const HEALTH_CMD = [
   `top -l 1 -n 0 | grep -E '^(CPU usage|PhysMem):'`,
   `sysctl -n hw.memsize | awk '{print "MEMTOTAL "$1}'`,
   `sysctl -n kern.memorystatus_vm_pressure_level | awk '{print "MEMORYPRESSURE "$1}'`,
-  `df -k / | awk 'NR==2 {gsub(/%/, "", $5); print "DISK "$2" "$3" "$4" "$5}'`,
+  `disk_info="$(diskutil info -plist /)"; disk_total="$(printf '%s' "$disk_info" | plutil -extract APFSContainerSize raw -)"; disk_free="$(printf '%s' "$disk_info" | plutil -extract APFSContainerFree raw -)"; printf 'DISK %s %s\\n' "$disk_total" "$disk_free"`,
   `sysctl -n kern.boottime | awk -F'[=,]' '{gsub(/ /, "", $2); print "BOOT "$2}'`,
   `date +%s | awk '{print "NOW "$1}'`,
   `sw_vers -productVersion | awk '{print "OS "$1}'`,
