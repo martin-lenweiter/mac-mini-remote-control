@@ -99,7 +99,9 @@ export function Dashboard() {
   return (
     <main className="mx-auto w-full max-w-6xl px-6 py-8">
       <header className="mb-8 flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">Mac Mini Remote Control</h1>
+        <h1 className="font-heading text-2xl font-semibold tracking-tight">
+          Mac Mini Remote Control
+        </h1>
         <div className="flex items-center gap-3">
           <StatusPill ok={reachable} loading={!status} />
           <Button variant="outline" size="sm" onClick={refresh} disabled={refreshing}>
