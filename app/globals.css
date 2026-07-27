@@ -132,3 +132,9 @@
     @apply font-sans;
   }
 }
+
+@layer components {
+  .embedded-terminal .xterm-rows [class*="xterm-underline-"] {
+    text-decoration: none !important;
+  }
+}

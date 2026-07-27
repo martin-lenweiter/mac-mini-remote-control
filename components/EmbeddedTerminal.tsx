@@ -73,19 +73,6 @@ export function EmbeddedTerminal({
       const fitAddon = new FitAddon();
       terminal.loadAddon(fitAddon);
       terminal.open(containerRef.current);
-      try {
-        const { WebglAddon } = await import('@xterm/addon-webgl');
-        if (!active) {
-          terminal.dispose();
-          return;
-        }
-        const webglAddon = new WebglAddon();
-        webglAddon.onContextLoss(() => webglAddon.dispose());
-        terminal.loadAddon(webglAddon);
-      } catch {
-        // WebGL can be unavailable after GPU resets or in restricted browsers.
-        // xterm keeps its built-in DOM renderer active as the safe fallback.
-      }
       fitAddon.fit();
       terminal.focus();
 
@@ -94,6 +81,24 @@ export function EmbeddedTerminal({
       url.searchParams.set('ticket', connection.ticket);
       socket = new WebSocket(url);
       socket.binaryType = 'arraybuffer';
+
+      const outputChunks: Uint8Array[] = [];
+      let outputBytes = 0;
+      let outputFrame = 0;
+      const flushOutput = () => {
+        outputFrame = 0;
+        if (outputBytes === 0) return;
+
+        const output = new Uint8Array(outputBytes);
+        let offset = 0;
+        for (const chunk of outputChunks) {
+          output.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        outputChunks.length = 0;
+        outputBytes = 0;
+        terminal.write(output);
+      };
 
       const sendSize = () => {
         if (socket?.readyState === WebSocket.OPEN) {
@@ -108,7 +113,17 @@ export function EmbeddedTerminal({
         terminal.focus();
       });
       socket.addEventListener('message', (event) => {
-        if (event.data instanceof ArrayBuffer) terminal.write(new Uint8Array(event.data));
+        if (!active || !(event.data instanceof ArrayBuffer)) return;
+
+        const chunk = new Uint8Array(event.data);
+        outputChunks.push(chunk);
+        outputBytes += chunk.byteLength;
+        if (outputBytes >= 64 * 1024) {
+          cancelAnimationFrame(outputFrame);
+          flushOutput();
+        } else if (outputFrame === 0) {
+          outputFrame = requestAnimationFrame(flushOutput);
+        }
       });
       socket.addEventListener('close', () => {
         if (active) setState('disconnected');
@@ -133,6 +148,7 @@ export function EmbeddedTerminal({
       resizeObserver.observe(containerRef.current);
 
       disposeTerminal = () => {
+        cancelAnimationFrame(outputFrame);
         cancelAnimationFrame(resizeFrame);
         input.dispose();
         resizeObserver?.disconnect();
@@ -203,7 +219,7 @@ export function EmbeddedTerminal({
       </header>
       <section
         ref={containerRef}
-        className="h-[clamp(360px,55vh,620px)] px-2 py-2 [&_.xterm-viewport]:overscroll-contain [&_.xterm]:h-full"
+        className="embedded-terminal h-[clamp(360px,55vh,620px)] px-2 py-2 [&_.xterm-viewport]:overscroll-contain [&_.xterm]:h-full"
         aria-label={`Terminal for ${connection.sessionName}`}
       />
     </section>
