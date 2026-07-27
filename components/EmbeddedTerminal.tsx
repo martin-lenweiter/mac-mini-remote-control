@@ -42,6 +42,9 @@ export function EmbeddedTerminal({
         fontSize: 13,
         lineHeight: 1.25,
         scrollback: 10_000,
+        scrollSensitivity: 2,
+        fastScrollSensitivity: 5,
+        smoothScrollDuration: 0,
         allowProposedApi: false,
         theme: {
           background: '#0b0d0e',
@@ -70,6 +73,19 @@ export function EmbeddedTerminal({
       const fitAddon = new FitAddon();
       terminal.loadAddon(fitAddon);
       terminal.open(containerRef.current);
+      try {
+        const { WebglAddon } = await import('@xterm/addon-webgl');
+        if (!active) {
+          terminal.dispose();
+          return;
+        }
+        const webglAddon = new WebglAddon();
+        webglAddon.onContextLoss(() => webglAddon.dispose());
+        terminal.loadAddon(webglAddon);
+      } catch {
+        // WebGL can be unavailable after GPU resets or in restricted browsers.
+        // xterm keeps its built-in DOM renderer active as the safe fallback.
+      }
       fitAddon.fit();
       terminal.focus();
 
@@ -187,7 +203,7 @@ export function EmbeddedTerminal({
       </header>
       <section
         ref={containerRef}
-        className="h-[clamp(360px,55vh,620px)] px-2 py-2 [&_.xterm]:h-full"
+        className="h-[clamp(360px,55vh,620px)] px-2 py-2 [&_.xterm-viewport]:overscroll-contain [&_.xterm]:h-full"
         aria-label={`Terminal for ${connection.sessionName}`}
       />
     </section>
