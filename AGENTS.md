@@ -12,6 +12,9 @@ full picture; this is what matters when changing the code.
 ## What it is
 - Runs **on the laptop**; API routes (`app/api/**`, Node runtime) shell out via
   `lib/rig.ts` to drive the mini over `ssh` and open sessions in **cmux**.
+- Treat `coding-setup` as independently deployed Mini-side infrastructure. Do
+  not consolidate it with Mission Control; coordinate cross-machine features
+  through explicit SSH/tmux contracts.
 - `lib/rig.ts` is the core: command builders, `ssh` exec, and the output parsers.
   Keep parsers pure and exported so they stay unit-testable (`lib/rig.test.ts`).
 - `lib/naming.ts` = local-gemma (ollama) session naming + sanitizer.
