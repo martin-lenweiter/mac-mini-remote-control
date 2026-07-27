@@ -183,8 +183,46 @@ function SessionsPanel({
     name: string,
   ) => Promise<{ ok: boolean; message: string }>;
 }) {
+  const sessionList = (
+    <ul className="flex flex-col gap-1.5">
+      {sessions.map((s) => (
+        <li
+          key={s.name}
+          className="flex items-center gap-3 rounded-lg border border-border/60 px-3 py-2"
+        >
+          <span
+            className={`size-2 shrink-0 rounded-full ${s.attached ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`}
+            title={s.attached ? 'attached' : 'detached'}
+          />
+          <Badge variant={TYPE_VARIANT[s.type]} className="shrink-0">
+            {TYPE_LABEL[s.type]}
+          </Badge>
+          <span className="truncate font-mono text-sm">{s.name}</span>
+          {!s.ephemeral && (
+            <Badge variant="outline" className="shrink-0 text-[10px]">
+              named
+            </Badge>
+          )}
+          <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+            idle {formatIdle(s.idleSeconds)}
+          </span>
+          <RenameSessionButton name={s.name} onRename={onRename} />
+          <ActionButton
+            size="sm"
+            variant="outline"
+            className="shrink-0"
+            action={() => onAttach(s.name)}
+          >
+            Attach
+          </ActionButton>
+          <KillSessionButton name={s.name} onKill={onKill} />
+        </li>
+      ))}
+    </ul>
+  );
+
   return (
-    <Card className="lg:col-span-2">
+    <Card className="self-start lg:col-span-2">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <TerminalSquare className="size-4 text-muted-foreground" />
@@ -200,44 +238,10 @@ function SessionsPanel({
           <EmptyRow text="Loading sessions…" />
         ) : sessions.length === 0 ? (
           <EmptyRow text="No tmux sessions running." />
+        ) : sessions.length > 8 ? (
+          <ScrollArea className="h-[420px] pr-3">{sessionList}</ScrollArea>
         ) : (
-          <ScrollArea className="h-[420px] pr-3">
-            <ul className="flex flex-col gap-1.5">
-              {sessions.map((s) => (
-                <li
-                  key={s.name}
-                  className="flex items-center gap-3 rounded-lg border border-border/60 px-3 py-2"
-                >
-                  <span
-                    className={`size-2 shrink-0 rounded-full ${s.attached ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`}
-                    title={s.attached ? 'attached' : 'detached'}
-                  />
-                  <Badge variant={TYPE_VARIANT[s.type]} className="shrink-0">
-                    {TYPE_LABEL[s.type]}
-                  </Badge>
-                  <span className="truncate font-mono text-sm">{s.name}</span>
-                  {!s.ephemeral && (
-                    <Badge variant="outline" className="shrink-0 text-[10px]">
-                      named
-                    </Badge>
-                  )}
-                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                    idle {formatIdle(s.idleSeconds)}
-                  </span>
-                  <RenameSessionButton name={s.name} onRename={onRename} />
-                  <ActionButton
-                    size="sm"
-                    variant="outline"
-                    className="shrink-0"
-                    action={() => onAttach(s.name)}
-                  >
-                    Attach
-                  </ActionButton>
-                  <KillSessionButton name={s.name} onKill={onKill} />
-                </li>
-              ))}
-            </ul>
-          </ScrollArea>
+          sessionList
         )}
       </CardContent>
     </Card>
@@ -520,7 +524,7 @@ function ScreenSharePanel({
 }) {
   const vnc = status?.tunnels.find((tunnel) => tunnel.kind === 'vnc');
   return (
-    <Card>
+    <Card className="self-start">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Monitor className="size-4 text-muted-foreground" />
