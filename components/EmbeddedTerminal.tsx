@@ -75,6 +75,18 @@ export function EmbeddedTerminal({
       terminal.open(containerRef.current);
       fitAddon.fit();
       terminal.focus();
+      const ruleGlyphs = terminal.onRender(({ start, end }) => {
+        const rows = containerRef.current?.querySelectorAll('.xterm-rows > div');
+        if (!rows) return;
+
+        for (let rowIndex = start; rowIndex <= end; rowIndex++) {
+          const row = rows.item(rowIndex);
+          if (!row) continue;
+          for (const span of row.querySelectorAll('span')) {
+            span.style.visibility = span.textContent?.includes('─') ? 'hidden' : '';
+          }
+        }
+      });
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const url = new URL(`${protocol}//${window.location.hostname}:4322/terminal`);
@@ -150,6 +162,7 @@ export function EmbeddedTerminal({
       disposeTerminal = () => {
         cancelAnimationFrame(outputFrame);
         cancelAnimationFrame(resizeFrame);
+        ruleGlyphs.dispose();
         input.dispose();
         resizeObserver?.disconnect();
         terminal.dispose();
