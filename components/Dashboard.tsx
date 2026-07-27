@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  BellRing,
   Clock3,
   Cpu,
   Download,
@@ -20,6 +21,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ActionButton } from '@/components/ActionButton';
+import { EmbeddedTerminal } from '@/components/EmbeddedTerminal';
 import { NewSessionDialog } from '@/components/NewSessionDialog';
 import {
   AlertDialog,
@@ -45,9 +47,18 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { fetchStatus, runAction } from '@/lib/client';
+import { fetchStatus, runAction, runTerminalAction } from '@/lib/client';
 import { formatBytes, formatIdle, formatUptime, TYPE_LABEL } from '@/lib/format';
-import type { AgentType, DevServer, MiniHealth, RigStatus, SessionInfo } from '@/lib/types';
+import type {
+  ActionResult,
+  AgentType,
+  DevServer,
+  MiniHealth,
+  RigStatus,
+  SessionInfo,
+  TerminalActionResult,
+  TerminalConnection,
+} from '@/lib/types';
 
 const TYPE_VARIANT: Record<string, 'default' | 'secondary' | 'outline'> = {
   cc: 'default',
@@ -55,11 +66,14 @@ const TYPE_VARIANT: Record<string, 'default' | 'secondary' | 'outline'> = {
   sh: 'outline',
   other: 'outline',
 };
+const TERMINAL_STORAGE_KEY = 'mission-control:terminal-session';
 
 export function Dashboard() {
   const [status, setStatus] = useState<RigStatus | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [terminal, setTerminal] = useState<TerminalConnection | null>(null);
   const inFlight = useRef(false);
+  const restoredTerminal = useRef(false);
 
   const refresh = useCallback(async () => {
     // Skip if a probe is still running so slow SSH reads don't stack up.
@@ -92,6 +106,82 @@ export function Dashboard() {
       return res;
     },
     [refresh],
+  );
+
+  const showTerminal = useCallback((connection: TerminalConnection) => {
+    localStorage.setItem(TERMINAL_STORAGE_KEY, connection.sessionName);
+    setTerminal(connection);
+  }, []);
+
+  const openTerminal = useCallback(
+    async (name: string): Promise<TerminalActionResult> => {
+      const res = await runTerminalAction('/api/sessions/terminal', { name });
+      if (res.ok && res.terminal) {
+        showTerminal(res.terminal);
+      } else {
+        toast.error(res.message);
+      }
+      return res;
+    },
+    [showTerminal],
+  );
+
+  useEffect(() => {
+    if (restoredTerminal.current || !status?.reachable) return;
+    restoredTerminal.current = true;
+    const saved = localStorage.getItem(TERMINAL_STORAGE_KEY);
+    if (!saved) return;
+    if (status.sessions.some((session) => session.name === saved)) {
+      void openTerminal(saved);
+    } else {
+      localStorage.removeItem(TERMINAL_STORAGE_KEY);
+    }
+  }, [openTerminal, status]);
+
+  const launchSession = useCallback(
+    async (type: AgentType, dir: string, task: string, name: string) => {
+      const res = await runTerminalAction('/api/sessions/new', {
+        type,
+        dir,
+        task,
+        name,
+      });
+      if (res.ok && res.terminal) {
+        toast.success(res.message);
+        showTerminal(res.terminal);
+        await refresh();
+      } else {
+        toast.error(res.message);
+      }
+      return res;
+    },
+    [refresh, showTerminal],
+  );
+
+  const closeTerminal = useCallback(() => {
+    localStorage.removeItem(TERMINAL_STORAGE_KEY);
+    setTerminal(null);
+  }, []);
+
+  const killSessionAction = useCallback(
+    async (name: string): Promise<ActionResult> => {
+      const res = await doAction('/api/sessions/kill', { name });
+      if (res.ok && terminal?.sessionName === name) closeTerminal();
+      return res;
+    },
+    [closeTerminal, doAction, terminal?.sessionName],
+  );
+
+  const renameSessionAction = useCallback(
+    async (from: string, to: string): Promise<ActionResult> => {
+      const res = await doAction('/api/sessions/rename', { from, to });
+      if (res.ok && terminal?.sessionName === from) {
+        localStorage.setItem(TERMINAL_STORAGE_KEY, to);
+        setTerminal((current) => (current ? { ...current, sessionName: to } : null));
+      }
+      return res;
+    },
+    [doAction, terminal?.sessionName],
   );
 
   const reachable = status?.reachable ?? false;
@@ -128,14 +218,26 @@ export function Dashboard() {
         <SessionsPanel
           sessions={status?.sessions ?? []}
           loading={!status}
-          onAttach={(name) => doAction('/api/sessions/attach', { name })}
-          onKill={(name) => doAction('/api/sessions/kill', { name })}
-          onRename={(from, to) => doAction('/api/sessions/rename', { from, to })}
-          onNew={(type, dir, task, name) =>
-            doAction('/api/sessions/new', { type, dir, task, name })
-          }
+          activeSession={terminal?.sessionName ?? null}
+          onOpenTerminal={openTerminal}
+          onOpenInCmux={(name) => doAction('/api/sessions/attach', { name })}
+          onKill={killSessionAction}
+          onRename={renameSessionAction}
+          onNew={launchSession}
         />
         <ScreenSharePanel status={status} onScreenshare={() => doAction('/api/screenshare')} />
+        {terminal && (
+          <div className="lg:col-span-3">
+            <EmbeddedTerminal
+              connection={terminal}
+              onCollapse={closeTerminal}
+              onReconnect={() => void openTerminal(terminal.sessionName)}
+              onOpenInCmux={() =>
+                void doAction('/api/sessions/attach', { name: terminal.sessionName })
+              }
+            />
+          </div>
+        )}
         <DevServersPanel
           devServers={status?.devServers ?? []}
           loading={!status}
@@ -166,14 +268,18 @@ function StatusPill({ ok, loading }: { ok: boolean; loading: boolean }) {
 function SessionsPanel({
   sessions,
   loading,
-  onAttach,
+  activeSession,
+  onOpenTerminal,
+  onOpenInCmux,
   onKill,
   onRename,
   onNew,
 }: {
   sessions: SessionInfo[];
   loading: boolean;
-  onAttach: (name: string) => Promise<{ ok: boolean; message: string }>;
+  activeSession: string | null;
+  onOpenTerminal: (name: string) => Promise<{ ok: boolean; message: string }>;
+  onOpenInCmux: (name: string) => Promise<{ ok: boolean; message: string }>;
   onKill: (name: string) => Promise<{ ok: boolean; message: string }>;
   onRename: (from: string, to: string) => Promise<{ ok: boolean; message: string }>;
   onNew: (
@@ -183,39 +289,72 @@ function SessionsPanel({
     name: string,
   ) => Promise<{ ok: boolean; message: string }>;
 }) {
+  const attentionCount = sessions.filter((session) => session.attention).length;
   const sessionList = (
     <ul className="flex flex-col gap-1.5">
       {sessions.map((s) => (
         <li
           key={s.name}
-          className="flex items-center gap-3 rounded-lg border border-border/60 px-3 py-2"
+          className={`rounded-lg border px-3 py-2.5 transition-colors ${
+            activeSession === s.name
+              ? 'border-emerald-500/40 bg-emerald-500/[0.04]'
+              : s.attention
+                ? 'border-amber-400/35 bg-amber-400/[0.04]'
+                : 'border-border/60'
+          }`}
         >
-          <span
-            className={`size-2 shrink-0 rounded-full ${s.attached ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`}
-            title={s.attached ? 'attached' : 'detached'}
-          />
-          <Badge variant={TYPE_VARIANT[s.type]} className="shrink-0">
-            {TYPE_LABEL[s.type]}
-          </Badge>
-          <span className="truncate font-mono text-sm">{s.name}</span>
-          {!s.ephemeral && (
-            <Badge variant="outline" className="shrink-0 text-[10px]">
-              named
+          <div className="flex min-w-0 items-center gap-2">
+            <span
+              className={`size-2 shrink-0 rounded-full ${
+                s.attention
+                  ? 'animate-pulse bg-amber-400'
+                  : s.attached
+                    ? 'bg-emerald-500'
+                    : 'bg-muted-foreground/40'
+              }`}
+              title={s.attention ? 'needs input' : s.attached ? 'attached' : 'detached'}
+            />
+            <Badge variant={TYPE_VARIANT[s.type]} className="shrink-0">
+              {TYPE_LABEL[s.type]}
             </Badge>
-          )}
-          <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-            idle {formatIdle(s.idleSeconds)}
-          </span>
-          <RenameSessionButton name={s.name} onRename={onRename} />
-          <ActionButton
-            size="sm"
-            variant="outline"
-            className="shrink-0"
-            action={() => onAttach(s.name)}
-          >
-            Attach
-          </ActionButton>
-          <KillSessionButton name={s.name} onKill={onKill} />
+            <span className="min-w-0 truncate font-mono text-sm">{s.name}</span>
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              <RenameSessionButton name={s.name} onRename={onRename} />
+              <ActionButton
+                size="sm"
+                variant={activeSession === s.name ? 'secondary' : 'outline'}
+                className="shrink-0"
+                action={() => onOpenTerminal(s.name)}
+              >
+                {activeSession === s.name ? 'Open' : 'Attach'}
+              </ActionButton>
+              <ActionButton
+                size="icon-sm"
+                variant="ghost"
+                aria-label={`Open ${s.name} in cmux`}
+                action={() => onOpenInCmux(s.name)}
+              >
+                <ExternalLink className="size-4" />
+              </ActionButton>
+              <KillSessionButton name={s.name} onKill={onKill} />
+            </div>
+          </div>
+          <div className="mt-2 flex min-h-5 flex-wrap items-center gap-2 pl-4 text-xs text-muted-foreground">
+            <span>idle {formatIdle(s.idleSeconds)}</span>
+            <span aria-hidden="true">·</span>
+            <span>{s.attached ? 'attached' : 'detached'}</span>
+            {!s.ephemeral && (
+              <Badge variant="outline" className="h-5 text-[10px]">
+                named
+              </Badge>
+            )}
+            {s.attention && (
+              <Badge className="h-5 gap-1 border-amber-400/25 bg-amber-400/15 text-[10px] text-amber-300">
+                <BellRing className="size-3" />
+                {s.attention === 'permission' ? 'Permission needed' : 'Needs input'}
+              </Badge>
+            )}
+          </div>
         </li>
       ))}
     </ul>
@@ -228,6 +367,12 @@ function SessionsPanel({
           <TerminalSquare className="size-4 text-muted-foreground" />
           Sessions
           <Badge variant="outline">{sessions.length}</Badge>
+          {attentionCount > 0 && (
+            <Badge className="gap-1 bg-amber-400/15 text-amber-300">
+              <BellRing className="size-3" />
+              {attentionCount}
+            </Badge>
+          )}
         </CardTitle>
         <CardAction>
           <NewSessionDialog onLaunch={onNew} />

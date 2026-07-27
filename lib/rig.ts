@@ -141,6 +141,8 @@ export function parseSessions(stdout: string, nowSec: number): SessionInfo[] {
         idleSeconds: Math.max(0, nowSec - (Number.isFinite(activitySec) ? activitySec : nowSec)),
         createdAt: Number(created) || 0,
         ephemeral: EPHEMERAL_RE.test(name),
+        attention: parts[4] === 'idle' || parts[4] === 'permission' ? parts[4] : null,
+        attentionAt: Number(parts[5]) > 0 ? Number(parts[5]) : null,
       } satisfies SessionInfo;
     })
     .filter((s): s is SessionInfo => s !== null)
@@ -272,7 +274,7 @@ export async function listTunnels(): Promise<TunnelInfo[]> {
 }
 
 // --- aggregate status -----------------------------------------------------
-const SESSIONS_FMT = `${PATH_PREFIX} tmux list-sessions -F '#{session_name}|#{session_attached}|#{session_activity}|#{session_created}' 2>/dev/null || true`;
+const SESSIONS_FMT = `${PATH_PREFIX} tmux list-sessions -F '#{session_name}|#{session_attached}|#{session_activity}|#{session_created}|#{@mission-control-attention}|#{@mission-control-attention-at}' 2>/dev/null || true`;
 const HEALTH_CMD = [
   `top -l 1 -n 0 | grep -E '^(CPU usage|PhysMem):'`,
   `sysctl -n hw.memsize | awk '{print "MEMTOTAL "$1}'`,
@@ -377,6 +379,13 @@ async function listSessionNames(): Promise<Set<string>> {
   );
 }
 
+export async function assertSessionExists(name: string): Promise<void> {
+  assertName(name, 'session name');
+  if (!(await listSessionNames()).has(name)) {
+    throw new Error(`No such session: ${name}`);
+  }
+}
+
 // --- actions --------------------------------------------------------------
 const CMUX_READY_ATTEMPTS = 24;
 const CMUX_READY_INTERVAL_MS = 100;
@@ -420,15 +429,10 @@ async function openInCmux(command: string, title: string): Promise<void> {
 }
 
 export async function attachSession(name: string): Promise<void> {
-  assertName(name, 'session name');
-  if (!(await listSessionNames()).has(name)) {
-    throw new Error(`No such session: ${name}`);
-  }
+  await assertSessionExists(name);
   const remote = `ssh -t ${RIG.sshAlias} "zsh -lic 'tmux attach -t ${name}'"`;
   await openInCmux(remote, name);
 }
-
-const LAUNCHER: Record<AgentType, string> = { cc: 'cct', cx: 'cxt', sh: 'tmt' };
 
 // Drop a redundant leading type prefix so an explicit "cc-foo" or a gemma slug
 // like "cc-foo" doesn't become "cc-cc-foo".
@@ -436,15 +440,16 @@ export function stripTypePrefix(slug: string): string {
   return slug.replace(/^(cc|cx|sh)-/, '');
 }
 
-export async function newSession(
+export async function prepareSession(
   type: AgentType,
   dir: string,
   task = '',
   name = '',
-): Promise<string> {
+): Promise<{ sessionName: string; type: AgentType; dir: string }> {
   const rel = assertRelPath(dir);
-  // Validate the absolute path before interpolating it unquoted into the launcher.
-  const target = assertSafe(absDir(rel), SAFE_PATH_RE, 'working dir');
+  // Validate the absolute path now even though the gateway reconstructs it. This
+  // keeps session preparation and launch behind the same path allowlist.
+  assertSafe(absDir(rel), SAFE_PATH_RE, 'working dir');
   const label = rel ? (rel.split('/').pop() as string) : 'code';
 
   // An explicit name always wins. Only when it's blank does local gemma name the
@@ -459,22 +464,11 @@ export async function newSession(
   while (existing.has(sessionName)) sessionName = `${base}-${n++}`;
   assertName(sessionName, 'session name');
 
-  // Use the rig launchers (single source of truth) with the -C working-dir flag.
-  // The launchers prepend the type themselves (`cct` makes `cc-$n`), so pass the
-  // name without our `${type}-` prefix — otherwise the session is doubled
-  // (`cc-cc-…`). stripTypePrefix(sessionName) is exactly that suffix, so the
-  // launcher reconstructs `sessionName`.
-  const launcherName = stripTypePrefix(sessionName);
-  const remote = `ssh -t ${RIG.sshAlias} "zsh -lic '${LAUNCHER[type]} -C ${target} ${launcherName}'"`;
-  await openInCmux(remote, sessionName);
-  return sessionName;
+  return { sessionName, type, dir: rel };
 }
 
 export async function killSession(name: string): Promise<void> {
-  assertName(name, 'session name');
-  if (!(await listSessionNames()).has(name)) {
-    throw new Error(`No such session: ${name}`);
-  }
+  await assertSessionExists(name);
   const targets = parsePaneTargets(
     await sshRead(`${PATH_PREFIX} tmux list-panes -s -t ${name} -F '#{pane_pid}|#{pane_tty}'`),
   );

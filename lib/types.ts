@@ -2,6 +2,7 @@
 // Keep this file free of any Node-only imports so it is safe in the browser.
 
 export type AgentType = 'cc' | 'cx' | 'sh';
+export type AttentionState = 'idle' | 'permission';
 
 export interface SessionInfo {
   name: string;
@@ -13,6 +14,10 @@ export interface SessionInfo {
   createdAt: number;
   /** Ephemeral sessions (timestamp-named) get garbage-collected; named ones don't. */
   ephemeral: boolean;
+  /** Agent lifecycle state reported through tmux user options. */
+  attention: AttentionState | null;
+  /** Unix epoch (seconds) of the latest attention transition. */
+  attentionAt: number | null;
 }
 
 export interface TunnelInfo {
@@ -74,4 +79,13 @@ export interface RigStatus {
 export interface ActionResult {
   ok: boolean;
   message: string;
+}
+
+export interface TerminalConnection {
+  sessionName: string;
+  ticket: string;
+}
+
+export interface TerminalActionResult extends ActionResult {
+  terminal?: TerminalConnection;
 }

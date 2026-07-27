@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { newSession } from '@/lib/rig';
-import type { ActionResult, AgentType } from '@/lib/types';
+import { prepareSession } from '@/lib/rig';
+import { createTerminalTicket } from '@/lib/terminal-ticket';
+import type { AgentType, TerminalActionResult } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,20 +17,27 @@ export async function POST(req: NextRequest) {
       name?: string;
     };
     if (!type || !TYPES.includes(type as AgentType)) {
-      return NextResponse.json<ActionResult>(
+      return NextResponse.json<TerminalActionResult>(
         { ok: false, message: 'Invalid session type' },
         { status: 400 },
       );
     }
-    const created = await newSession(
+    const prepared = await prepareSession(
       type as AgentType,
       typeof dir === 'string' ? dir : '',
       typeof task === 'string' ? task : '',
       typeof name === 'string' ? name : '',
     );
-    return NextResponse.json<ActionResult>({ ok: true, message: `Launching ${created}` });
+    return NextResponse.json<TerminalActionResult>({
+      ok: true,
+      message: `Launching ${prepared.sessionName}`,
+      terminal: {
+        sessionName: prepared.sessionName,
+        ticket: createTerminalTicket({ kind: 'launch', ...prepared }),
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json<ActionResult>({ ok: false, message }, { status: 500 });
+    return NextResponse.json<TerminalActionResult>({ ok: false, message }, { status: 500 });
   }
 }

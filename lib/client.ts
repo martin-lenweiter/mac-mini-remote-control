@@ -1,5 +1,5 @@
 // Browser-side fetch helpers for the dashboard.
-import type { ActionResult, RigStatus } from '@/lib/types';
+import type { ActionResult, RigStatus, TerminalActionResult } from '@/lib/types';
 
 function offlineStatus(message: string): RigStatus {
   return {
@@ -51,6 +51,22 @@ export async function runAction(
       body: JSON.stringify(body ?? {}),
     });
     return (await res.json()) as ActionResult;
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : 'Request failed' };
+  }
+}
+
+export async function runTerminalAction(
+  path: string,
+  body: Record<string, unknown>,
+): Promise<TerminalActionResult> {
+  try {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return (await res.json()) as TerminalActionResult;
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : 'Request failed' };
   }

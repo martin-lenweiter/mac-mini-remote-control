@@ -25,6 +25,7 @@ describe('parseSessions', () => {
     const byName = Object.fromEntries(sessions.map((s) => [s.name, s]));
     expect(byName['cc-fix-bug']).toMatchObject({ type: 'cc', attached: true, idleSeconds: 30 });
     expect(byName['cc-fix-bug'].ephemeral).toBe(false);
+    expect(byName['cc-fix-bug'].attention).toBeNull();
     expect(byName['cx-1782777489']).toMatchObject({ type: 'cx', attached: false });
     expect(byName['cx-1782777489'].ephemeral).toBe(true);
     expect(byName['sh-work'].type).toBe('sh');
@@ -49,6 +50,14 @@ describe('parseSessions', () => {
     ].join('\n');
     const sessions = parseSessions(out, now);
     expect(sessions.map((s) => s.name)).toEqual(['cc-good']);
+  });
+
+  it('parses lifecycle attention options when present', () => {
+    const out = `cx-review|0|${now - 5}|${now - 100}|permission|${now - 2}`;
+    expect(parseSessions(out, now)[0]).toMatchObject({
+      attention: 'permission',
+      attentionAt: now - 2,
+    });
   });
 });
 
