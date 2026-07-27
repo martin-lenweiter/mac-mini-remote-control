@@ -43,9 +43,8 @@ After changing app code, re-run that script to rebuild + reload; `bun run dev`
 clashes with it on 4321 (stop the service first).
 
 Because the service runs outside cmux's process tree, cmux's default `cmuxOnly`
-socket policy rejects it (`Failed to write to socket (Broken pipe)`). Fix: set
-`automation.socketControlMode: "password"` + a `socketPassword` in
-`~/.config/cmux/cmux.json`, hand the panel the same value via
-`RIG_CMUX_SOCKET_PASSWORD` (in `.env.local`; `openInCmux` passes it as cmux's
-global `--password`), and **restart cmux once** — the socket auth gate binds at
-launch, so `cmux reload-config` is not enough.
+socket policy rejects it (`Failed to write to socket (Broken pipe)`). Set
+`automation.socketControlMode: "password"` and save a socket password in cmux
+Settings. The CLI reads the saved password itself; never pass it through argv or
+duplicate it in `.env.local`. `openInCmux` launches cmux and waits for its socket
+when needed.

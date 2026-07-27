@@ -8,6 +8,7 @@ import {
   parsePaneTargets,
   parseSessions,
   stripTypePrefix,
+  waitForCmuxReady,
 } from '@/lib/rig';
 
 describe('parseSessions', () => {
@@ -80,6 +81,72 @@ describe('stripTypePrefix', () => {
     ] as const) {
       expect(`${type}-${stripTypePrefix(name)}`).toBe(name);
     }
+  });
+});
+
+describe('waitForCmuxReady', () => {
+  it('does not launch cmux when it is already reachable', async () => {
+    let launches = 0;
+    let waits = 0;
+
+    await waitForCmuxReady(
+      {
+        ping: async () => {},
+        launch: async () => {
+          launches += 1;
+        },
+        wait: async () => {
+          waits += 1;
+        },
+      },
+      3,
+    );
+
+    expect(launches).toBe(0);
+    expect(waits).toBe(0);
+  });
+
+  it('launches cmux and waits for its socket to become ready', async () => {
+    let pings = 0;
+    let launches = 0;
+    let waits = 0;
+
+    await waitForCmuxReady(
+      {
+        ping: async () => {
+          pings += 1;
+          if (pings < 3) throw new Error('socket missing');
+        },
+        launch: async () => {
+          launches += 1;
+        },
+        wait: async () => {
+          waits += 1;
+        },
+      },
+      3,
+    );
+
+    expect(pings).toBe(3);
+    expect(launches).toBe(1);
+    expect(waits).toBe(1);
+  });
+
+  it('returns a safe, actionable error when cmux never becomes ready', async () => {
+    await expect(
+      waitForCmuxReady(
+        {
+          ping: async () => {
+            throw new Error('command contains a secret');
+          },
+          launch: async () => {},
+          wait: async () => {},
+        },
+        2,
+      ),
+    ).rejects.toThrow(
+      'cmux did not become ready after launch. Check cmux Settings → Automation and try again.',
+    );
   });
 });
 

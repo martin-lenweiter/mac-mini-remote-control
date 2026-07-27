@@ -1,7 +1,4 @@
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { RIG } from '@/lib/config';
 import { generateSessionSlug, slugify } from '@/lib/naming';
@@ -17,6 +14,37 @@ import type {
 } from '@/lib/types';
 
 const pexec = promisify(execFile);
+
+interface CmuxReadinessActions {
+  ping: () => Promise<void>;
+  launch: () => Promise<void>;
+  wait: () => Promise<void>;
+}
+
+export async function waitForCmuxReady(
+  { ping, launch, wait }: CmuxReadinessActions,
+  attempts: number,
+): Promise<void> {
+  try {
+    await ping();
+    return;
+  } catch {
+    await launch();
+  }
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      await ping();
+      return;
+    } catch {
+      if (attempt < attempts - 1) await wait();
+    }
+  }
+
+  throw new Error(
+    'cmux did not become ready after launch. Check cmux Settings → Automation and try again.',
+  );
+}
 
 // --- guards ---------------------------------------------------------------
 // All operations that interpolate values into a shell-bound command validate
@@ -350,38 +378,45 @@ async function listSessionNames(): Promise<Set<string>> {
 }
 
 // --- actions --------------------------------------------------------------
-// cmux stores the socket password separately from cmux.json so the secret is not
-// exposed in ordinary config. The daemon watches this file for auth changes.
-const CMUX_PASSWORD_PATH = join(homedir(), '.local', 'state', 'cmux', 'socket-control-password');
+const CMUX_READY_ATTEMPTS = 24;
+const CMUX_READY_INTERVAL_MS = 100;
+const CMUX_PING_TIMEOUT_MS = 250;
+let cmuxReadyPromise: Promise<void> | null = null;
 
-// Best-effort: heal cmux's secret store if it drifts from the launchd environment.
-// Never throw here; workspace creation below will surface the actionable error.
-async function ensureCmuxSocketAuth(): Promise<void> {
-  if (!RIG.cmuxSocketPassword) return;
-  try {
-    const stored = await readFile(CMUX_PASSWORD_PATH, 'utf8').catch(() => '');
-    if (stored.trim() === RIG.cmuxSocketPassword) return;
-    await mkdir(join(homedir(), '.local', 'state', 'cmux'), { recursive: true });
-    await writeFile(CMUX_PASSWORD_PATH, `${RIG.cmuxSocketPassword}\n`, { mode: 0o600 });
-    await chmod(CMUX_PASSWORD_PATH, 0o600);
-  } catch {
-    // best-effort; let the workspace create surface any real failure
+async function ensureCmuxReady(): Promise<void> {
+  if (!cmuxReadyPromise) {
+    const env = { ...process.env, CMUX_QUIET: '1' };
+    cmuxReadyPromise = waitForCmuxReady(
+      {
+        ping: async () => {
+          await pexec(RIG.cmuxBin, ['ping'], { timeout: CMUX_PING_TIMEOUT_MS, env });
+        },
+        launch: async () => {
+          try {
+            await pexec('open', ['-g', '-a', 'cmux'], { timeout: 8000 });
+          } catch {
+            throw new Error('Unable to launch cmux. Confirm it is installed in Applications.');
+          }
+        },
+        wait: () => delay(CMUX_READY_INTERVAL_MS),
+      },
+      CMUX_READY_ATTEMPTS,
+    ).finally(() => {
+      cmuxReadyPromise = null;
+    });
   }
+  await cmuxReadyPromise;
 }
 
 // Open an interactive command in a new cmux workspace titled `title`. cmux runs
 // `command` in the workspace's terminal, so the remote ssh/tmux session is fully
 // interactive. `command` and `title` are passed as argv (no shell on our side).
 async function openInCmux(command: string, title: string): Promise<void> {
-  await ensureCmuxSocketAuth();
-  // `--password` is a global flag and must precede the subcommand. cmux rejects
-  // out-of-tree clients (the launchd service) unless they present this secret.
-  const auth = RIG.cmuxSocketPassword ? ['--password', RIG.cmuxSocketPassword] : [];
-  await pexec(
-    RIG.cmuxBin,
-    [...auth, 'workspace', 'create', '--name', title, '--command', command],
-    { timeout: 8000, env: { ...process.env, CMUX_QUIET: '1' } },
-  );
+  await ensureCmuxReady();
+  await pexec(RIG.cmuxBin, ['new-workspace', '--name', title, '--command', command], {
+    timeout: 8000,
+    env: { ...process.env, CMUX_QUIET: '1' },
+  });
 }
 
 export async function attachSession(name: string): Promise<void> {
