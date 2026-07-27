@@ -42,7 +42,7 @@ export function EmbeddedTerminal({
         fontSize: 13,
         lineHeight: 1.25,
         scrollback: 10_000,
-        scrollSensitivity: 2,
+        scrollSensitivity: 4,
         fastScrollSensitivity: 5,
         smoothScrollDuration: 0,
         allowProposedApi: false,
