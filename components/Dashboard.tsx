@@ -187,7 +187,11 @@ export function Dashboard() {
   const reachable = status?.reachable ?? false;
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-6 py-8">
+    <main
+      className={`mx-auto w-full px-6 py-8 transition-[max-width] ${
+        terminal ? 'max-w-[100rem]' : 'max-w-6xl'
+      }`}
+    >
       <header className="mb-8 flex items-center justify-between gap-4">
         <h1 className="font-heading text-2xl font-semibold tracking-tight">
           Mac Mini Remote Control
@@ -201,33 +205,56 @@ export function Dashboard() {
         </div>
       </header>
 
-      {status && !reachable && (
-        <Card className="mb-6 border-destructive/40">
-          <CardContent className="py-4 text-sm text-destructive">
-            Can’t reach the mini: {status.error ?? 'unknown error'}
-          </CardContent>
-        </Card>
-      )}
+      <div className={terminal ? 'grid gap-4 lg:grid-cols-2 lg:items-start' : undefined}>
+        <div className={terminal ? 'flex min-w-0 flex-col gap-4' : 'contents'}>
+          {status && !reachable && (
+            <Card className={terminal ? 'border-destructive/40' : 'mb-6 border-destructive/40'}>
+              <CardContent className="py-4 text-sm text-destructive">
+                Can’t reach the mini: {status.error ?? 'unknown error'}
+              </CardContent>
+            </Card>
+          )}
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <MiniHealthPanel
-          health={status?.health ?? null}
-          loading={!status}
-          onSoftwareUpdate={() => doAction('/api/software-update')}
-        />
-        <SessionsPanel
-          sessions={status?.sessions ?? []}
-          loading={!status}
-          activeSession={terminal?.sessionName ?? null}
-          onOpenTerminal={openTerminal}
-          onOpenInCmux={(name) => doAction('/api/sessions/attach', { name })}
-          onKill={killSessionAction}
-          onRename={renameSessionAction}
-          onNew={launchSession}
-        />
-        <ScreenSharePanel status={status} onScreenshare={() => doAction('/api/screenshare')} />
+          <MiniHealthPanel
+            health={status?.health ?? null}
+            loading={!status}
+            compact={Boolean(terminal)}
+            onSoftwareUpdate={() => doAction('/api/software-update')}
+          />
+
+          <div
+            className={terminal ? 'flex min-w-0 flex-col gap-4' : 'mt-4 grid gap-4 lg:grid-cols-3'}
+          >
+            <div className={terminal ? 'min-w-0' : 'contents'}>
+              <SessionsPanel
+                sessions={status?.sessions ?? []}
+                loading={!status}
+                activeSession={terminal?.sessionName ?? null}
+                onOpenTerminal={openTerminal}
+                onOpenInCmux={(name) => doAction('/api/sessions/attach', { name })}
+                onKill={killSessionAction}
+                onRename={renameSessionAction}
+                onNew={launchSession}
+              />
+            </div>
+            <div className={terminal ? 'min-w-0' : 'contents'}>
+              <ScreenSharePanel
+                status={status}
+                onScreenshare={() => doAction('/api/screenshare')}
+              />
+            </div>
+            <div className={terminal ? 'min-w-0' : 'contents'}>
+              <DevServersPanel
+                devServers={status?.devServers ?? []}
+                loading={!status}
+                onForward={(port) => doAction('/api/forward', { port })}
+                onStop={(port) => doAction('/api/forward', { port }, 'DELETE')}
+              />
+            </div>
+          </div>
+        </div>
         {terminal && (
-          <div className="lg:col-span-3">
+          <div className="min-w-0 lg:sticky lg:top-4">
             <EmbeddedTerminal
               connection={terminal}
               onCollapse={closeTerminal}
@@ -238,12 +265,6 @@ export function Dashboard() {
             />
           </div>
         )}
-        <DevServersPanel
-          devServers={status?.devServers ?? []}
-          loading={!status}
-          onForward={(port) => doAction('/api/forward', { port })}
-          onStop={(port) => doAction('/api/forward', { port }, 'DELETE')}
-        />
       </div>
     </main>
   );
@@ -529,10 +550,12 @@ function RenameSessionButton({
 function MiniHealthPanel({
   health,
   loading,
+  compact,
   onSoftwareUpdate,
 }: {
   health: MiniHealth | null;
   loading: boolean;
+  compact: boolean;
   onSoftwareUpdate: () => Promise<{ ok: boolean; message: string }>;
 }) {
   if (loading) {
@@ -572,7 +595,9 @@ function MiniHealthPanel({
           Mini health
         </CardTitle>
       </CardHeader>
-      <CardContent className="grid gap-x-6 gap-y-5 pt-1 sm:grid-cols-2 lg:grid-cols-5">
+      <CardContent
+        className={`grid gap-x-6 gap-y-5 pt-1 sm:grid-cols-2 ${compact ? '' : 'lg:grid-cols-5'}`}
+      >
         <HealthMetric
           icon={Cpu}
           label="CPU"

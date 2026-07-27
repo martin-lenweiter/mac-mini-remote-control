@@ -219,7 +219,7 @@ export function EmbeddedTerminal({
       </header>
       <section
         ref={containerRef}
-        className="embedded-terminal h-[clamp(360px,55vh,620px)] px-2 py-2 [&_.xterm-viewport]:overscroll-contain [&_.xterm]:h-full"
+        className="embedded-terminal h-[clamp(360px,55vh,620px)] px-2 py-2 lg:h-[calc(100vh-11rem)] lg:min-h-[520px] [&_.xterm-viewport]:overscroll-contain [&_.xterm]:h-full"
         aria-label={`Terminal for ${connection.sessionName}`}
       />
     </section>
