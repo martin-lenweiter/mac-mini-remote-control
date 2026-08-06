@@ -5,6 +5,7 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUN="$(command -v bun)"
+TAILSCALE="$(command -v tailscale)"
 LABEL="io.grace.mission-control"
 TERMINAL_LABEL="io.grace.mission-control-terminal"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
@@ -17,6 +18,19 @@ UID_NUM="$(id -u)"
 
 if [ -z "$BUN" ]; then
   echo "error: bun not found on PATH" >&2
+  exit 1
+fi
+if [ -z "$TAILSCALE" ]; then
+  echo "error: tailscale not found on PATH" >&2
+  exit 1
+fi
+
+TAILSCALE_HOST="$(
+  "$TAILSCALE" status --json |
+    "$BUN" -e 'const input = await Bun.stdin.text(); const host = JSON.parse(input).Self?.DNSName; if (!host) process.exit(1); console.log(host.replace(/\.$/, ""));'
+)"
+if [ -z "$TAILSCALE_HOST" ]; then
+  echo "error: could not determine this Mac's Tailscale hostname" >&2
   exit 1
 fi
 
@@ -73,6 +87,7 @@ cat >"$TERMINAL_PLIST" <<EOF
   <dict>
     <key>PATH</key><string>/opt/homebrew/bin:$HOME/.bun/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>MISSION_CONTROL_TERMINAL_SECRET_FILE</key><string>$SECRET_FILE</string>
+    <key>MISSION_CONTROL_TAILSCALE_HOST</key><string>$TAILSCALE_HOST</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -125,8 +140,13 @@ wait_for_url() {
 wait_for_url "http://127.0.0.1:4321/" "$LABEL"
 wait_for_url "http://127.0.0.1:4322/health" "$TERMINAL_LABEL"
 
+echo "Publishing to the tailnet…"
+"$TAILSCALE" serve --bg --yes --http=80 4321
+"$TAILSCALE" serve --bg --yes --http=80 --set-path=/terminal http://127.0.0.1:4322/terminal
+
 echo "Installed $LABEL and $TERMINAL_LABEL."
 echo "Dashboard: http://localhost:4321"
+echo "Phone: http://$TAILSCALE_HOST"
 echo "Logs: $LOG and $TERMINAL_LOG"
 echo "Stop: launchctl bootout gui/$UID_NUM/$LABEL"
 echo "      launchctl bootout gui/$UID_NUM/$TERMINAL_LABEL"

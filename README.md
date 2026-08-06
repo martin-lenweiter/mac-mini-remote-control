@@ -5,8 +5,8 @@ sessions, tunnels, dev servers, and agent browser running on the always-on Mac
 mini (the `coding-setup` rig). It runs **on your laptop** and drives the rig by
 shelling out to the same `ssh` / `tmux` / `cmux` commands you'd type by hand.
 
-> Runs at **http://localhost:4321**. Single-user, local-only — no auth, never
-> exposed beyond loopback.
+> Runs locally at **http://localhost:4321** and is available inside the tailnet
+> through Tailscale Serve. The app itself stays bound to loopback.
 
 ## What it does
 
@@ -16,7 +16,7 @@ shelling out to the same `ssh` / `tmux` / `cmux` commands you'd type by hand.
 - **Sessions** — open any session in a **new cmux workspace** (attach), start a
   **repo-aware new session**, **rename**, or **kill** it and every process still
   attached to its panes (with confirmation).
-- **New session** — browse a **directory tree under `~/code`** and launch there.
+- **New session** — browse a **directory tree under `~`** and launch there.
   The name comes from an explicit name you type, or, if blank, from **local
   gemma** (ollama) using an optional task description, falling back to the
   directory name. The `cc-`/`cx-`/`sh-` prefix encodes the agent type.
@@ -63,6 +63,10 @@ scripts/install-service.sh
 ```
 
 - Serves the production build at **http://localhost:4321**.
+- Publishes the dashboard to this Mac's tailnet-only
+  `http://<macbook-name>.<tailnet>.ts.net` address. The installer prints the
+  exact URL; open it on a phone connected to the same tailnet. Traffic remains
+  encrypted by Tailscale.
 - Logs: `~/Library/Logs/mission-control.log`.
 - Stop: `launchctl bootout gui/$(id -u)/io.grace.mission-control`
 - **After changing the app code, re-run the script** to rebuild and reload.
@@ -85,7 +89,7 @@ host — the app only needs the SSH alias):
 | Var | Default | Purpose |
 |-----|---------|---------|
 | `RIG_SSH_ALIAS` | `mini` | SSH alias for the mini |
-| `RIG_CODE_ROOT` | `~/code` | repo root on the mini (dir navigator + `-C` launches) |
+| `RIG_CODE_ROOT` | `~` | directory picker root on the mini (dir navigator + `-C` launches) |
 | `RIG_CDP_PORT` | `9335` | mini headed-Chrome remote-debugging port |
 | `RIG_CMUX_BIN` | `/Applications/cmux.app/Contents/Resources/bin/cmux` | cmux CLI |
 | `RIG_OLLAMA_URL` | `http://localhost:11434` | local ollama endpoint |
@@ -118,8 +122,10 @@ Local single-user tool with no app auth by design. Defenses that matter for a
 process that shells out and runs on `localhost`:
 
 - **Input allowlists** — session names, repo/dir paths, and ports are validated
-  (and dir paths can't escape `~/code` via `..`) before any value reaches a shell.
+  (and dir paths can't escape the configured picker root via `..`) before any value reaches a shell.
 - **CSRF/origin guard** (`proxy.ts`) — state-changing requests must be same-origin,
   so a malicious browser tab can't drive the rig.
-- **Loopback-only bind** (`-H 127.0.0.1`) — never exposed to the network.
+- **Loopback-only bind** (`-H 127.0.0.1`) — Tailscale Serve is the only network
+  entry point, so tailnet access controls apply and the ordinary LAN cannot
+  reach the app.
 - No secrets in the repo — only the SSH alias; the Tailnet host stays in `~/.ssh/config`.

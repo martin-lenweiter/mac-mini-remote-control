@@ -11,6 +11,9 @@ const MAX_BUFFERED_BYTES = 1024 * 1024;
 const SAFE_NAME_RE = /^[A-Za-z0-9._-]+$/;
 const SAFE_PATH_RE = /^[~A-Za-z0-9._/-]+$/;
 const LAUNCHER = { cc: 'cct', cx: 'cxt', sh: 'tmt' } as const;
+const REMOTE_ENV =
+  'export LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH=/opt/homebrew/bin:$HOME/.local/bin:$PATH';
+const TAILSCALE_HOST = process.env.MISSION_CONTROL_TAILSCALE_HOST?.replace(/\.$/, '');
 const secret = readTerminalSecret();
 const usedNonces = new Map<string, number>();
 
@@ -37,9 +40,13 @@ function allowedOrigin(request: Request): boolean {
   try {
     const parsed = new URL(origin);
     return (
-      parsed.protocol === 'http:' &&
-      parsed.port === '4321' &&
-      (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')
+      (parsed.protocol === 'http:' &&
+        parsed.port === '4321' &&
+        (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')) ||
+      (Boolean(TAILSCALE_HOST) &&
+        (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+        parsed.port === '' &&
+        parsed.hostname === TAILSCALE_HOST)
     );
   } catch {
     return false;
@@ -49,7 +56,7 @@ function allowedOrigin(request: Request): boolean {
 function remoteCommand(ticket: TerminalTicket): string {
   if (!SAFE_NAME_RE.test(ticket.sessionName)) throw new Error('Unsafe session name');
   if (ticket.kind === 'attach') {
-    return `export PATH=/opt/homebrew/bin:$HOME/.local/bin:$PATH; exec tmux attach-session -t ${ticket.sessionName}`;
+    return `${REMOTE_ENV}; exec tmux attach-session -t ${ticket.sessionName}`;
   }
 
   if (!SAFE_PATH_RE.test(RIG.codeRoot) || !isSafeTerminalRelativePath(ticket.dir)) {
@@ -58,7 +65,7 @@ function remoteCommand(ticket: TerminalTicket): string {
   const directory = ticket.dir ? `${RIG.codeRoot}/${ticket.dir}` : RIG.codeRoot;
   const suffix = ticket.sessionName.replace(/^(cc|cx|sh)-/, '');
   if (!SAFE_NAME_RE.test(suffix)) throw new Error('Unsafe launcher name');
-  return `zsh -lic '${LAUNCHER[ticket.type]} -C ${directory} ${suffix}'`;
+  return `${REMOTE_ENV}; exec zsh -lic '${LAUNCHER[ticket.type]} -C ${directory} ${suffix}'`;
 }
 
 function parseClientMessage(raw: string): InputMessage | ResizeMessage | null {

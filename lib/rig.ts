@@ -450,7 +450,7 @@ export async function prepareSession(
   // Validate the absolute path now even though the gateway reconstructs it. This
   // keeps session preparation and launch behind the same path allowlist.
   assertSafe(absDir(rel), SAFE_PATH_RE, 'working dir');
-  const label = rel ? (rel.split('/').pop() as string) : 'code';
+  const label = rel ? (rel.split('/').pop() as string) : 'home';
 
   // An explicit name always wins. Only when it's blank does local gemma name the
   // session from the directory + task; that itself falls back to the directory

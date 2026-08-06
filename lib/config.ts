@@ -4,8 +4,8 @@
 export const RIG = {
   /** SSH alias for the mini, as defined in ~/.ssh/config. */
   sshAlias: process.env.RIG_SSH_ALIAS ?? 'mini',
-  /** Repo root on the mini (CODE_ROOT). Used for the repo picker and -C launches. */
-  codeRoot: process.env.RIG_CODE_ROOT ?? '~/code',
+  /** Directory picker root on the mini. Used for the repo picker and -C launches. */
+  codeRoot: process.env.RIG_CODE_ROOT ?? '~',
   /** Headed-Chrome remote-debugging port on the mini (LOCAL_CDP_PORT). */
   cdpPort: Number(process.env.RIG_CDP_PORT ?? 9335),
   /** VNC screen-share tunnel ports (local:remote). */
