@@ -134,6 +134,10 @@
 }
 
 @layer components {
+  .embedded-terminal .xterm-helper-textarea {
+    left: 0 !important;
+  }
+
   .embedded-terminal .xterm-rows [class*="xterm-underline-"] {
     text-decoration: none !important;
   }

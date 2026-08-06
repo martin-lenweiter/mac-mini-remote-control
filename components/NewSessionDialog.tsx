@@ -92,18 +92,18 @@ export function NewSessionDialog({ onLaunch }: NewSessionDialogProps) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
-          <Button size="sm">
+          <Button size="sm" className="h-10 sm:h-7">
             <Plus className="size-4" />
             New session
           </Button>
         }
       />
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="top-auto bottom-0 max-h-[calc(100svh-0.5rem)] max-w-none translate-y-0 overflow-y-auto rounded-b-none sm:top-1/2 sm:bottom-auto sm:max-w-md sm:-translate-y-1/2 sm:rounded-xl">
         <DialogHeader>
           <DialogTitle>New session</DialogTitle>
           <DialogDescription>
-            Pick a directory under <span className="font-mono">~/code</span>, then launch. The name
-            is generated locally from what you're working on.
+            Pick a directory under <span className="font-mono">~</span>, then launch. The name is
+            generated locally from what you're working on.
           </DialogDescription>
         </DialogHeader>
 
@@ -134,7 +134,7 @@ export function NewSessionDialog({ onLaunch }: NewSessionDialogProps) {
                 onClick={() => setPath('')}
                 className="font-mono text-muted-foreground hover:text-foreground"
               >
-                ~/code
+                ~
               </button>
               {segments.map((seg, i) => (
                 <span key={segments.slice(0, i + 1).join('/')} className="flex items-center gap-1">
@@ -163,7 +163,7 @@ export function NewSessionDialog({ onLaunch }: NewSessionDialogProps) {
                       <button
                         type="button"
                         onClick={() => setPath(path ? `${path}/${e}` : e)}
-                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
+                        className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted sm:min-h-0 sm:py-1.5"
                       >
                         <Folder className="size-4 shrink-0 text-muted-foreground" />
                         <span className="truncate font-mono">{e}</span>
@@ -207,11 +207,11 @@ export function NewSessionDialog({ onLaunch }: NewSessionDialogProps) {
           </div>
         </div>
 
-        <DialogFooter className="items-center justify-between sm:justify-between">
-          <span className="truncate font-mono text-xs text-muted-foreground">
-            starts in ~/code{path ? `/${path}` : ''}
+        <DialogFooter className="flex-col items-stretch justify-between pb-[max(1rem,env(safe-area-inset-bottom))] sm:flex-row sm:items-center sm:justify-between sm:pb-4">
+          <span className="truncate text-center font-mono text-xs text-muted-foreground sm:text-left">
+            starts in ~{path ? `/${path}` : ''}
           </span>
-          <Button onClick={handleLaunch} disabled={launching}>
+          <Button className="h-11 sm:h-8" onClick={handleLaunch} disabled={launching}>
             {launching ? <Loader2 className="size-4 animate-spin" /> : 'Launch'}
           </Button>
         </DialogFooter>

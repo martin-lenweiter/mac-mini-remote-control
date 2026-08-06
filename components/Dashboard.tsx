@@ -47,6 +47,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { fetchStatus, runAction, runTerminalAction } from '@/lib/client';
 import { formatBytes, formatIdle, formatUptime, TYPE_LABEL } from '@/lib/format';
 import type {
@@ -188,17 +189,26 @@ export function Dashboard() {
 
   return (
     <main
-      className={`mx-auto w-full px-6 py-8 transition-[max-width] ${
+      className={`mx-auto w-full px-4 py-5 transition-[max-width] sm:px-6 sm:py-8 ${
         terminal ? 'max-w-[100rem]' : 'max-w-6xl'
       }`}
     >
-      <header className="mb-8 flex items-center justify-between gap-4">
-        <h1 className="font-heading text-2xl font-semibold tracking-tight">
-          Mac Mini Remote Control
-        </h1>
-        <div className="flex items-center gap-3">
+      <header className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="mb-1 text-xs font-medium tracking-[0.18em] text-muted-foreground uppercase">
+            Mac mini rig
+          </p>
+          <h1 className="font-heading text-2xl font-semibold tracking-tight">Mission Control</h1>
+        </div>
+        <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-end">
           <StatusPill ok={reachable} loading={!status} />
-          <Button variant="outline" size="sm" onClick={refresh} disabled={refreshing}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-10 px-3 sm:h-7 sm:px-2.5"
+            onClick={refresh}
+            disabled={refreshing}
+          >
             <RefreshCw className={refreshing ? 'size-4 animate-spin' : 'size-4'} />
             Refresh
           </Button>
@@ -206,7 +216,7 @@ export function Dashboard() {
       </header>
 
       <div className={terminal ? 'grid gap-4 lg:grid-cols-2 lg:items-start' : undefined}>
-        <div className={terminal ? 'flex min-w-0 flex-col gap-4' : 'contents'}>
+        <div className={terminal ? 'order-2 flex min-w-0 flex-col gap-4 lg:order-1' : 'contents'}>
           {status && !reachable && (
             <Card className={terminal ? 'border-destructive/40' : 'mb-6 border-destructive/40'}>
               <CardContent className="py-4 text-sm text-destructive">
@@ -254,7 +264,7 @@ export function Dashboard() {
           </div>
         </div>
         {terminal && (
-          <div className="min-w-0 lg:sticky lg:top-4">
+          <div className="order-1 min-w-0 lg:order-2 lg:sticky lg:top-4">
             <EmbeddedTerminal
               connection={terminal}
               onCollapse={closeTerminal}
@@ -312,73 +322,83 @@ function SessionsPanel({
 }) {
   const attentionCount = sessions.filter((session) => session.attention).length;
   const sessionList = (
-    <ul className="flex flex-col gap-1.5">
-      {sessions.map((s) => (
-        <li
-          key={s.name}
-          className={`rounded-lg border px-3 py-2.5 transition-colors ${
-            activeSession === s.name
-              ? 'border-emerald-500/40 bg-emerald-500/[0.04]'
-              : s.attention
-                ? 'border-amber-400/35 bg-amber-400/[0.04]'
-                : 'border-border/60'
-          }`}
-        >
-          <div className="flex min-w-0 items-center gap-2">
-            <span
-              className={`size-2 shrink-0 rounded-full ${
-                s.attention
-                  ? 'animate-pulse bg-amber-400'
-                  : s.attached
-                    ? 'bg-emerald-500'
-                    : 'bg-muted-foreground/40'
-              }`}
-              title={s.attention ? 'needs input' : s.attached ? 'attached' : 'detached'}
-            />
-            <Badge variant={TYPE_VARIANT[s.type]} className="shrink-0">
-              {TYPE_LABEL[s.type]}
-            </Badge>
-            <span className="min-w-0 truncate font-mono text-sm">{s.name}</span>
-            <div className="ml-auto flex shrink-0 items-center gap-1">
-              <RenameSessionButton name={s.name} onRename={onRename} />
-              <ActionButton
-                size="sm"
-                variant={activeSession === s.name ? 'secondary' : 'outline'}
-                className="shrink-0"
-                action={() => onOpenTerminal(s.name)}
-              >
-                {activeSession === s.name ? 'Open' : 'Attach'}
-              </ActionButton>
-              <ActionButton
-                size="icon-sm"
-                variant="ghost"
-                aria-label={`Open ${s.name} in cmux`}
-                action={() => onOpenInCmux(s.name)}
-              >
-                <ExternalLink className="size-4" />
-              </ActionButton>
-              <KillSessionButton name={s.name} onKill={onKill} />
+    <TooltipProvider>
+      <ul className="flex flex-col gap-1.5">
+        {sessions.map((s) => (
+          <li
+            key={s.name}
+            className={`relative rounded-lg border transition-colors ${
+              activeSession === s.name
+                ? 'border-emerald-500/40 bg-emerald-500/[0.04]'
+                : s.attention
+                  ? 'border-amber-400/35 bg-amber-400/[0.04]'
+                  : 'border-border/60 hover:border-border'
+            }`}
+          >
+            <ActionButton
+              variant="ghost"
+              aria-label={`Open ${s.name} terminal`}
+              className="absolute inset-0 h-auto w-full cursor-pointer rounded-lg p-0 hover:bg-muted/40 focus-visible:ring-inset [&>svg]:opacity-0"
+              action={() => onOpenTerminal(s.name)}
+            >
+              <span className="sr-only">Open {s.name} terminal</span>
+            </ActionButton>
+            <div className="pointer-events-none relative flex min-w-0 flex-wrap items-center gap-2 px-3 pt-2.5 sm:flex-nowrap">
+              <span
+                className={`size-2 shrink-0 rounded-full ${
+                  s.attention
+                    ? 'animate-pulse bg-amber-400'
+                    : s.attached
+                      ? 'bg-emerald-500'
+                      : 'bg-muted-foreground/40'
+                }`}
+                title={s.attention ? 'needs input' : s.attached ? 'attached' : 'detached'}
+              />
+              <Badge variant={TYPE_VARIANT[s.type]} className="shrink-0">
+                {TYPE_LABEL[s.type]}
+              </Badge>
+              <span className="min-w-0 truncate font-mono text-sm">{s.name}</span>
+              <div className="pointer-events-auto mt-2 flex basis-full items-center justify-end gap-1 border-t border-border/50 pt-2 sm:mt-0 sm:ml-auto sm:basis-auto sm:border-0 sm:pt-0">
+                <RenameSessionButton name={s.name} onRename={onRename} />
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <ActionButton
+                        size="icon-sm"
+                        variant="ghost"
+                        className="size-10 sm:size-7"
+                        aria-label={`Open ${s.name} in cmux`}
+                        action={() => onOpenInCmux(s.name)}
+                      >
+                        <ExternalLink className="size-4" />
+                      </ActionButton>
+                    }
+                  />
+                  <TooltipContent>Open in cmux</TooltipContent>
+                </Tooltip>
+                <KillSessionButton name={s.name} onKill={onKill} />
+              </div>
             </div>
-          </div>
-          <div className="mt-2 flex min-h-5 flex-wrap items-center gap-2 pl-4 text-xs text-muted-foreground">
-            <span>idle {formatIdle(s.idleSeconds)}</span>
-            <span aria-hidden="true">·</span>
-            <span>{s.attached ? 'attached' : 'detached'}</span>
-            {!s.ephemeral && (
-              <Badge variant="outline" className="h-5 text-[10px]">
-                named
-              </Badge>
-            )}
-            {s.attention && (
-              <Badge className="h-5 gap-1 border-amber-400/25 bg-amber-400/15 text-[10px] text-amber-300">
-                <BellRing className="size-3" />
-                {s.attention === 'permission' ? 'Permission needed' : 'Needs input'}
-              </Badge>
-            )}
-          </div>
-        </li>
-      ))}
-    </ul>
+            <div className="pointer-events-none relative mt-2 flex min-h-5 flex-wrap items-center gap-2 px-3 pb-2.5 pl-7 text-xs text-muted-foreground">
+              <span>idle {formatIdle(s.idleSeconds)}</span>
+              <span aria-hidden="true">·</span>
+              <span>{s.attached ? 'attached' : 'detached'}</span>
+              {!s.ephemeral && (
+                <Badge variant="outline" className="h-5 text-[10px]">
+                  named
+                </Badge>
+              )}
+              {s.attention && (
+                <Badge className="h-5 gap-1 border-amber-400/25 bg-amber-400/15 text-[10px] text-amber-300">
+                  <BellRing className="size-3" />
+                  {s.attention === 'permission' ? 'Permission needed' : 'Needs input'}
+                </Badge>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </TooltipProvider>
   );
 
   return (
@@ -442,7 +462,7 @@ function KillSessionButton({
             size="sm"
             variant="ghost"
             aria-label={`Kill ${name}`}
-            className="shrink-0 text-muted-foreground hover:text-destructive"
+            className="size-10 shrink-0 p-0 text-muted-foreground hover:text-destructive sm:size-7"
           >
             <Trash2 className="size-4" />
           </Button>
@@ -514,7 +534,7 @@ function RenameSessionButton({
             size="sm"
             variant="ghost"
             aria-label={`Rename ${name}`}
-            className="shrink-0 text-muted-foreground hover:text-foreground"
+            className="size-10 shrink-0 p-0 text-muted-foreground hover:text-foreground sm:size-7"
           >
             <Pencil className="size-4" />
           </Button>
@@ -710,7 +730,7 @@ function ScreenSharePanel({
             {vnc?.up ? 'VNC tunnel ready' : 'Not connected'}
           </span>
         </div>
-        <ActionButton variant="secondary" size="sm" action={onScreenshare}>
+        <ActionButton variant="secondary" size="sm" className="h-10 sm:h-7" action={onScreenshare}>
           <Monitor className="size-4" />
           {vnc?.up ? 'Open screen share' : 'Start screen share'}
         </ActionButton>
@@ -749,7 +769,7 @@ function DevServersPanel({
             {devServers.map((d) => (
               <li
                 key={d.port}
-                className="flex items-center gap-3 rounded-lg border border-border/60 px-3 py-2"
+                className="flex min-h-12 items-center gap-3 rounded-lg border border-border/60 px-3 py-2"
               >
                 <span className="font-mono text-sm">:{d.port}</span>
                 <span className="truncate text-xs text-muted-foreground">{d.command}</span>
@@ -765,12 +785,22 @@ function DevServersPanel({
                         <ExternalLink className="size-3" />
                         open
                       </a>
-                      <ActionButton size="sm" variant="ghost" action={() => onStop(d.port)}>
+                      <ActionButton
+                        size="sm"
+                        variant="ghost"
+                        className="size-10 p-0 sm:size-7"
+                        action={() => onStop(d.port)}
+                      >
                         <X className="size-4" />
                       </ActionButton>
                     </>
                   ) : (
-                    <ActionButton size="sm" variant="outline" action={() => onForward(d.port)}>
+                    <ActionButton
+                      size="sm"
+                      variant="outline"
+                      className="h-10 sm:h-7"
+                      action={() => onForward(d.port)}
+                    >
                       Forward
                     </ActionButton>
                   )}
