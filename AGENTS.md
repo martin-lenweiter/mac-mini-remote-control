@@ -39,11 +39,22 @@ full picture; this is what matters when changing the code.
 changes, load it in a browser. Destructive rig actions (kill/rename/new) have real
 side effects — test them against throwaway tmux sessions, never the user's live ones.
 
+## Commit and push completed work
+After every successful change, once the required verification passes, commit only
+the files belonging to that change and push the current branch to `origin`. Do not
+leave completed work uncommitted or unpushed. If committing or pushing is blocked,
+report the blocker explicitly before finishing.
+
 ## Always-on
 The panel runs as a launchd service (`scripts/install-service.sh`,
 `io.grace.mission-control`) serving the **production build** at `localhost:4321`.
 After changing app code, re-run that script to rebuild + reload; `bun run dev`
 clashes with it on 4321 (stop the service first).
+
+launchd does not provide a UTF-8 locale. Keep `LANG=C.UTF-8` and
+`LC_ALL=C.UTF-8` in the terminal gateway's remote environment for both attach
+and launch commands; without them, tmux replaces Unicode terminal glyphs with
+underscores.
 
 Because the service runs outside cmux's process tree, cmux's default `cmuxOnly`
 socket policy rejects it (`Failed to write to socket (Broken pipe)`). Set
